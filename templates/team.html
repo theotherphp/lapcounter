@@ -1,0 +1,20 @@
+<html>
+<head>
+</head>
+<body>
+    <h1>{{.Name}}</h1>
+    <table>
+        <tr>
+            <th>Tag Number</th>
+            <th>Laps</th>
+            <th>Time of last lap</th>
+        </tr>
+        {{range $index, $element := .Tags}}
+            <tr>
+                <td>{{$index}}</td>
+                <td>{{.Laps}}</td>
+                <td>{{.LastUpdated}}</td>
+            </tr>
+        {{end}}
+</body>
+</html>

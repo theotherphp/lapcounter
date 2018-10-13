@@ -1,0 +1,20 @@
+<html>
+<head>
+</head>
+<body>
+    <h1>Teams</h1>
+    <table>
+        <tr>
+            <th>Name</th>
+            <th>Leader</th>
+            <th>Laps</th>
+        </tr>
+        {{range $index, $element := .Teams}}
+            <tr>
+                <td><a href="/team/{{$index}}">{{.Name}}</a></td>
+                <td>{{.Leader}}</td>
+                <td>{{.Laps}}</td>
+            </tr>
+        {{end}}
+</body>
+</html>
