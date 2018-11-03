@@ -11,7 +11,7 @@
         </tr>
         {{range $index, $element := .Teams}}
             <tr>
-                <td><a href="/team/{{$index}}">{{.Name}}</a></td>
+                <td><a href="/team/{{.TeamID}}">{{.Name}}</a></td>
                 <td>{{.Leader}}</td>
                 <td>{{.Laps}}</td>
             </tr>

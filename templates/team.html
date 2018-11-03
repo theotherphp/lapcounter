@@ -11,7 +11,7 @@
         </tr>
         {{range $index, $element := .Tags}}
             <tr>
-                <td>{{$index}}</td>
+                <td>{{.TagID}}</td>
                 <td>{{.Laps}}</td>
                 <td>{{.LastUpdated}}</td>
             </tr>

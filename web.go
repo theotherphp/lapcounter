@@ -2,7 +2,9 @@ package main
 
 import (
     "context"
+    // "fmt"
     "html/template"
+    // "encoding/json"
     "log"
     "net/http"
     "os"
@@ -19,14 +21,19 @@ import (
     3. Gorountines and channels support concurrent non-blocking Websockets
 */
 
-type Notification struct {
-    tagKey int
+
+type NotifyClient struct {
+    conn *websocket.Conn
+    maxRank int
+    // chanForThisConn chan Notification
 }
 
 type WebServer struct {
     ds *DataStore
     tagChannel chan int
+    quitTagChannel chan bool
     notifyChannel chan struct{}
+    notifyClients map[*websocket.Conn]*NotifyClient
 }
 
 
@@ -47,6 +54,9 @@ func (svr *WebServer) runTemplate(w http.ResponseWriter, name string, param inte
 
 
 func (svr *WebServer) handleTeam(w http.ResponseWriter, r *http.Request) {
+    ds := ConnectToDB()
+    defer ds.Close()
+
     if r.Method == "GET" {
         if teamKey, err := strconv.Atoi(r.URL.Path[len("/team/"):]); err == nil {
             type TeamParam struct {
@@ -54,10 +64,18 @@ func (svr *WebServer) handleTeam(w http.ResponseWriter, r *http.Request) {
                 Tags []*Tag
             }
 
+            var tags Tags
+            if tags, err = ds.GetTagsForTeam(teamKey); err != nil {
+                log.Println("GetTagsForTeam %v", err)
+            }
+            var name string
+            if name, err = ds.GetTeamName(teamKey); err != nil {
+                log.Println("GetTagsForTeam %v", err)
+            }
             svr.runTemplate(w, "./templates/team.html",
-                TeamParam {
-                    Name: svr.ds.GetTeam(teamKey).Name,
-                    Tags: svr.ds.GetTagsByTeam(teamKey),
+            TeamParam {
+                Name: name,
+                Tags: tags,
             })
         }
     } else if r.Method == "POST" {
@@ -67,12 +85,18 @@ func (svr *WebServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 
 
 func (svr *WebServer) handleTeams(w http.ResponseWriter, r *http.Request) {
+    ds := ConnectToDB()
+    defer ds.Close()
+
     if r.Method == "GET" {
         type TeamsParam struct {
             Teams []*Team
         }
-        svr.runTemplate(w, "./templates/teams.html",
-            TeamsParam{Teams: svr.ds.GetTeams()})
+
+        if teams, err := ds.GetTeams(); err == nil {
+            svr.runTemplate(w, "./templates/teams.html",
+                TeamsParam{Teams: teams})
+        }
     } else if r.Method == "POST" {
         log.Println("/teams/ POST unimplemented")
     }
@@ -83,6 +107,7 @@ var upgrader = websocket.Upgrader{}
 
 
 func (svr *WebServer) handleLaps(w http.ResponseWriter, r *http.Request) {
+    log.Println("handleLaps starting")
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {  // Separate line so conn is in scope for goroutine below
         log.Println("/laps/ upgrader.Upgrade: ", err)
@@ -91,55 +116,90 @@ func (svr *WebServer) handleLaps(w http.ResponseWriter, r *http.Request) {
     defer conn.Close()
 
     // Publish tag reads to the tag channel
-    go func() {
-        log.Println("producing to tagChannel")
-        for {
-            if _, msg, err := conn.ReadMessage(); err == nil {
-                tagKey, err := strconv.Atoi(string(msg))
-                if err == nil {
-                    svr.tagChannel <- tagKey
-                } else {
-                    log.Println("strconv.Atoi: ", msg)
-                }
+    for {
+        if _, msg, err := conn.ReadMessage(); err == nil {
+            tagKey, err := strconv.Atoi(string(msg))
+            if err == nil {
+                svr.tagChannel <- tagKey
             } else {
-                log.Println("conn.ReadMessage: ", err)
+                log.Println("strconv.Atoi: ", msg)
             }
+        } else {
+            log.Println("conn.ReadMessage: ", err)
+            break
         }
-    }()
-
-    // Consume the tag channel, updating the data store
-    go func() {
-        log.Println("consuming tagChannel")
-        for {
-            tagKey := <-svr.tagChannel
-            svr.ds.IncrementLaps(tagKey)
-        }
-    }()
+    }
+    log.Println("handleLaps exiting")
 }
 
 
+func (svr *WebServer) serviceTagChannel() {
+    // Consume the tag channel, updating the data store
+    log.Println("serviceTagChannel starting")
+    ds := ConnectToDB()
+    defer ds.Close()
+
+    for {
+        select {
+        case tagKey := <-svr.tagChannel:
+            ds.IncrementLaps(tagKey)
+        case <-svr.quitTagChannel:
+            return
+        }
+    }
+    log.Println("serviceTagChannel exiting")
+}
+
+/*
 func (svr *WebServer) handleNotify(w http.ResponseWriter, r *http.Request) {
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {  // Separate line so conn is in scope for goroutine below
         log.Println("/notify/ upgrader.Upgrade ", err)
     }
 
-    // Consume the notification channel, sending to the browser client
-    go func() {
-        log.Println("consuming notifyChannel")
-        for n := range svr.notifyChannel {
-            conn.WriteJSON(n)
-        }
-    }()
+    maxRank, err := strconv.Atoi(r.URL.Query().Get("maxRank"))
+    if err != nil {
+        maxRank = -1
+    }
+    ch := make(chan Notification, 10)
+    cli := NotifyClient{
+        maxRank: maxRank, 
+        chanForThisConn: ch,
+        conn: conn}
+    svr.notifyClients[conn] = &cli
+    go svr.notify(&cli)
 }
 
 
-func InitWebServer(ds *DataStore) {
-    svr := new(WebServer)
-    svr.ds = ds
-    svr.tagChannel = make(chan int)
-    svr.notifyChannel = make(chan struct{})
+func (svr *WebServer) notify(cli *NotifyClient) {
+    for {
+        notification := <- cli.chanForThisConn
+        if cli.maxRank > 0 && notification.team_rank > cli.maxRank {
+            // This client is a leaderboard, interested in the top N teams
+            continue
+        }
+        if payload, err := json.marshal(notification); err != nil {
+            fmt.Println("json.marshal: ", err)
+            continue
+        }
+        if err := cli.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+            fmt.Println("WriteMessage: ", err)
+            delete(svr.notifyClients, cli.conn)
+            break
+        }
+    }
+}
+*/
 
+func StartWebServer() {
+    svr := new(WebServer)
+    svr.tagChannel = make(chan int, 10)
+    svr.quitTagChannel = make(chan bool)
+
+    /*
+    svr.notifyChannel = make(chan Notification, 100)
+    svr.notifyClients = make(map[*Conn]NotifyClient)
+*/
     var httpsvr http.Server
     quit := make(chan os.Signal, 1)
     signal.Notify(quit, os.Interrupt)
@@ -155,9 +215,12 @@ func InitWebServer(ds *DataStore) {
     http.HandleFunc("/team/", svr.handleTeam)
     http.HandleFunc("/teams/", svr.handleTeams)
     http.HandleFunc("/laps/", svr.handleLaps)
-    http.HandleFunc("/notify/", svr.handleNotify)
+    // http.HandleFunc("/notify/", svr.handleNotify)
+
+    go svr.serviceTagChannel()
 
     if err := httpsvr.ListenAndServe(); err != http.ErrServerClosed {
         log.Println("http.ListenAndServe: ", err)
     }
+    svr.quitTagChannel<- true
 }

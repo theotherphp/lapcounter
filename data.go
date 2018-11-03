@@ -2,6 +2,7 @@ package main
 
 import (
     "log"
+    "sort"
     "time"
 )
 
@@ -19,6 +20,7 @@ type Team struct {
     Laps int
     TagKeys []int
 }
+type Teams []*Team
 
 type Tag struct {
     Laps int
@@ -26,11 +28,19 @@ type Tag struct {
     TagKey int
     TeamKey int
 }
+type Tags map[int]*Tag
 
 type DataStore struct {
-    teams []*Team
-    tags map[int]*Tag
+    teams Teams
+    tags Tags
     journal *Journal
+}
+
+type Notification struct {
+    tag_id int
+    team_id int
+    team_name string
+    team_rank string
 }
 
 const MIN_LAP_SECS = 10
@@ -40,7 +50,7 @@ func InitDataStore() *DataStore {
     ds.journal = new(Journal)
 
     idx, _ := ds.InsertTeam("LYB", "JB")
-    ds.tags = make(map[int]*Tag)
+    ds.tags = make(Tags)
     ds.InsertTag(idx, 0)
 
     return ds
@@ -62,6 +72,47 @@ func (ds *DataStore) GetTeams() ([]*Team) {
 
 func (ds *DataStore) GetTeam(teamKey int) *Team {
     return ds.teams[teamKey]
+}
+
+
+// Make Teams sortable
+func (sl Teams) Len() int { return len(sl) }
+func (sl Teams) Swap(i, j int) { sl[i], sl[j] = sl[j], sl[i] }
+
+// Provider comparators to enable Sort(ByLaps{teams})
+type ByName struct { Teams }
+func (sl ByName) Less(i, j int) bool { return sl.Teams[i].Name < sl.Teams[j].Name }
+type ByLaps struct { Teams }
+func (sl ByLaps) Less(i, j int) bool { return sl.Teams[j].Laps < sl.Teams[i].Laps }  // descending order
+
+
+func (ds *DataStore) GetTeamRank(teamKey int) (int, bool) {
+    sortedTeams := make(Teams, len(ds.teams))
+    copy(sortedTeams, ds.teams)
+    sort.Sort(ByLaps{sortedTeams})
+
+    lastLaps := -1
+    rank := 0
+    tied := false
+    for i := range sortedTeams {
+        laps := sortedTeams[i].Laps
+        if laps > lastLaps {
+            tied = false
+            rank++
+        } else if laps == lastLaps {
+            tied = true
+        }
+
+        if sortedTeams[i] == ds.teams[teamKey] {
+            if i < len(sortedTeams) && ds.teams[teamKey].Laps == sortedTeams[i+1].Laps {
+                tied = true
+            }
+            break
+        }
+        lastLaps = laps
+    }
+
+    return rank, tied
 }
 
 

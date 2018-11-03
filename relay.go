@@ -5,9 +5,7 @@ import (
 )
 
 func main() {
-    log.Println("starting")
-    ds := InitDataStore()
-    defer ds.Close()
-    InitWebServer(ds)
-    log.Println("exiting")
+    log.Println("relay starting")
+    StartWebServer()
+    log.Println("relay exiting")
 }
