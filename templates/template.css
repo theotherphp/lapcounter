@@ -1,0 +1,17 @@
+table {
+    font-size: 1.3em;
+    width: 80%;
+}
+
+tr:nth-child(even) {
+    background: #CCC;
+}
+
+tr:nth-child(odd) {
+    background: #FFF;
+}
+
+td {
+    padding-top: 0.3em;
+    text-align: center;
+}

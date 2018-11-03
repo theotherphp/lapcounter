@@ -216,6 +216,7 @@ func StartWebServer() {
     http.HandleFunc("/teams/", svr.handleTeams)
     http.HandleFunc("/laps/", svr.handleLaps)
     // http.HandleFunc("/notify/", svr.handleNotify)
+    http.Handle("/templates/", http.StripPrefix("/templates/", http.FileServer(http.Dir("./templates"))))
 
     go svr.serviceTagChannel()
 
