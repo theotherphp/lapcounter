@@ -22,26 +22,26 @@ import (
    3. Gorountines and channels support concurrent non-blocking Websockets
 */
 
-type NotifyClient struct {
+type notifyClient struct {
 	conn    *websocket.Conn
 	maxRank int
 	// chanForThisConn chan Notification
 }
 
-type WebServer struct {
+type webServer struct {
 	ds                *DataStore
 	tagChannel        chan int
 	quitTagChannel    chan bool
 	notifyChannel     chan struct{}
 	quitNotifyChannel chan bool
-	notifyClients     map[*websocket.Conn]*NotifyClient
+	notifyClients     map[*websocket.Conn]*notifyClient
 }
 
-func (svr *WebServer) handleRoot(w http.ResponseWriter, r *http.Request) {
+func (svr *webServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/teams/", http.StatusSeeOther)
 }
 
-func (svr *WebServer) runTemplate(w http.ResponseWriter, name string, param interface{}) {
+func (svr *webServer) runTemplate(w http.ResponseWriter, name string, param interface{}) {
 	if tmpl, err := template.ParseFiles(name); err == nil {
 		if err = tmpl.Execute(w, param); err != nil {
 			log.Println("template.Execute ", name, err)
@@ -51,7 +51,7 @@ func (svr *WebServer) runTemplate(w http.ResponseWriter, name string, param inte
 	}
 }
 
-func (svr *WebServer) handleTeam(w http.ResponseWriter, r *http.Request) {
+func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 	ds := ConnectToDB()
 	defer ds.Close()
 
@@ -81,7 +81,7 @@ func (svr *WebServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (svr *WebServer) handleTeams(w http.ResponseWriter, r *http.Request) {
+func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 	ds := ConnectToDB()
 	defer ds.Close()
 
@@ -101,7 +101,7 @@ func (svr *WebServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 
 var upgrader = websocket.Upgrader{}
 
-func (svr *WebServer) handleLaps(w http.ResponseWriter, r *http.Request) {
+func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 	log.Println("handleLaps starting")
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil { // Separate line so conn is in scope for goroutine below
@@ -127,7 +127,7 @@ func (svr *WebServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 	log.Println("handleLaps exiting")
 }
 
-func (svr *WebServer) serviceTagChannel() {
+func (svr *webServer) serviceTagChannel() {
 	// Consume the tag channel, updating the data store
 	log.Println("serviceTagChannel starting")
 	ds := ConnectToDB()
@@ -144,7 +144,7 @@ func (svr *WebServer) serviceTagChannel() {
 	}
 }
 
-func (svr *WebServer) serviceNotifyChannel() {
+func (svr *webServer) serviceNotifyChannel() {
 	log.Println("serviceNotifyChannel starting")
 	for {
 		select {
@@ -158,7 +158,7 @@ func (svr *WebServer) serviceNotifyChannel() {
 }
 
 /*
-func (svr *WebServer) handleNotify(w http.ResponseWriter, r *http.Request) {
+func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {  // Separate line so conn is in scope for goroutine below
         log.Println("/notify/ upgrader.Upgrade ", err)
@@ -178,7 +178,7 @@ func (svr *WebServer) handleNotify(w http.ResponseWriter, r *http.Request) {
 }
 
 
-func (svr *WebServer) notify(cli *NotifyClient) {
+func (svr *webServer) notify(cli *NotifyClient) {
     for {
         notification := <- cli.chanForThisConn
         if cli.maxRank > 0 && notification.team_rank > cli.maxRank {
@@ -200,7 +200,7 @@ func (svr *WebServer) notify(cli *NotifyClient) {
 
 // StartWebServer starts and stops the app and its goroutines
 func StartWebServer() {
-	svr := new(WebServer)
+	svr := new(webServer)
 	svr.tagChannel = make(chan int, 10)
 	svr.quitTagChannel = make(chan bool)
 	svr.notifyChannel = make(chan struct{}, 10)
@@ -238,7 +238,7 @@ func StartWebServer() {
 	svr.quitTagChannel <- true
 	svr.quitNotifyChannel <- true
 
-	// Wait for quit goroutines to close the DB cleanly
+	// Wait for goroutines to quit so we close the DB cleanly
 	// I thought unbuffered channels were synchronous so this seems odd
 	time.Sleep(time.Second)
 }

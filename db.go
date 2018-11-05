@@ -14,40 +14,48 @@ import (
 )
 
 const (
-	TEAMS_TBL   = "teams"
-	TEAM_ID     = "team_id"
-	TEAM_NAME   = "team_name"
-	TEAM_LEADER = "team_leader"
-	TEAM_LAPS   = "team_laps"
+	tTeams      = "teams"
+	fTeamID     = "team_id"
+	fTeamName   = "team_name"
+	fTeamLeader = "team_leader"
+	fTeamLaps   = "team_laps"
 
-	TAGS_TBL = "tags"
-	TAG_ID   = "tag_id"
-	TAG_LAPS = "tag_laps"
-	TAG_TIME = "tag_time"
+	tTags           = "tags"
+	fTagID          = "tag_id"
+	fTagLaps        = "tag_laps"
+	fTagLastUpdated = "last_updated"
 
-	MIN_LAP_SECS = 2.0
+	minLapSecs = 2.0
 )
 
+// DataStore is the abstraction around a SQLite3 DB
 type DataStore struct {
 	conn *sqlite3.Conn
 }
 
+// Team is an in-memory representation of a row in the teams table
 type Team struct {
 	Laps   int
 	Leader string
 	Name   string
 	TeamID int
 }
+
+// Teams is a list of Team structs
 type Teams []*Team
 
+// Tag is an in-memory representation of a row in the tags table
 type Tag struct {
 	TagID       int
 	TeamID      int
 	LastUpdated string
 	Laps        int
 }
+
+// Tags is a list of Tag structs
 type Tags []*Tag
 
+// ConnectToDB is the way the web server connects to the DB from a goroutine
 func ConnectToDB() *DataStore {
 	conn, err := sqlite3.Open("relay.db")
 	if err != nil {
@@ -63,7 +71,7 @@ func ConnectToDB() *DataStore {
 
 	s := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s TEXT,
         %s TEXT, %s INTEGER)`,
-		TEAMS_TBL, TEAM_ID, TEAM_NAME, TEAM_LEADER, TEAM_LAPS)
+		tTeams, fTeamID, fTeamName, fTeamLeader, fTeamLaps)
 	err = ds.conn.Exec(s)
 	if err != nil {
 		log.Printf("CREATE teams %v", err)
@@ -71,14 +79,14 @@ func ConnectToDB() *DataStore {
 
 	s = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
         %s TEXT, %s INTEGER, FOREIGN KEY(%s) REFERENCES %s(%s))`,
-		TAGS_TBL, TAG_ID, TEAM_ID, TAG_TIME, TAG_LAPS, TEAM_ID, TEAMS_TBL, TEAM_ID)
+		tTags, fTagID, fTeamID, fTagLastUpdated, fTagLaps, fTeamID, tTeams, fTeamID)
 	err = ds.conn.Exec(s)
 	if err != nil {
 		log.Printf("CREATE tags %v", err)
 	}
 
 	// Allow indexed query for tags with a given team_id
-	s = fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_team_id ON %s(%s)", TAGS_TBL, TEAM_ID)
+	s = fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_team_id ON %s(%s)", tTags, fTeamID)
 	err = ds.conn.Exec(s)
 	if err != nil {
 		log.Printf("CREATE idx_team_id %v", err)
@@ -86,15 +94,17 @@ func ConnectToDB() *DataStore {
 	return ds
 }
 
+// Close closes the SQLite3 conn
 func (ds *DataStore) Close() {
 	log.Println("DB closing")
 	ds.conn.Close()
 }
 
-func (ds *DataStore) IncrementLaps(tag_id int) error {
-	// Get the row data for the tag_id we got from the RFID reader
+// IncrementLaps increments the lap counts
+func (ds *DataStore) IncrementLaps(tagID int) error {
+	// Get the row data for the tagID we got from the RFID reader
 	s := fmt.Sprintf("SELECT %s,%s FROM %s WHERE %s = %d",
-		TEAM_ID, TAG_TIME, TAGS_TBL, TAG_ID, tag_id)
+		fTeamID, fTagLastUpdated, tTags, fTagID, tagID)
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
 		log.Printf("Prepare IncrementLaps %v", err)
@@ -110,22 +120,22 @@ func (ds *DataStore) IncrementLaps(tag_id int) error {
 			log.Printf("Scan IncrementLaps %v", err)
 		}
 	} else if !hasRow {
-		log.Printf("Unassigned tag: %d", tag_id)
+		log.Printf("Unassigned tag: %d", tagID)
 		return nil
 	}
 
 	// Check for duplicate tag reads (or attempted cheating)
 	now := time.Now()
 	if then, err := time.Parse(time.RFC1123, lastUpdated); err == nil {
-		if now.Sub(then).Seconds() < MIN_LAP_SECS {
-			log.Printf("Duplicate read: %d", tag_id)
+		if now.Sub(then).Seconds() < minLapSecs {
+			log.Printf("Duplicate read: %d", tagID)
 			return nil
 		}
 	}
 
 	// Increment lap count and last updated in the tags table
 	s = fmt.Sprintf("UPDATE %s SET %s = %s + 1, %s = \"%s\" WHERE %s = %d",
-		TAGS_TBL, TAG_LAPS, TAG_LAPS, TAG_TIME, now.Format(time.RFC1123), TAG_ID, tag_id)
+		tTags, fTagLaps, fTagLaps, fTagLastUpdated, now.Format(time.RFC1123), fTagID, tagID)
 	if err = ds.conn.Exec(s); err != nil {
 		log.Printf("Update tag laps %v", err)
 		return err
@@ -134,7 +144,7 @@ func (ds *DataStore) IncrementLaps(tag_id int) error {
 	// Increament lap count in teams table
 	// I go back and forth over shadowing this data or calculating it
 	s = fmt.Sprintf("UPDATE %s SET %s = %s + 1 WHERE %s = %d",
-		TEAMS_TBL, TEAM_LAPS, TEAM_LAPS, TEAM_ID, teamID)
+		tTeams, fTeamLaps, fTeamLaps, fTeamID, teamID)
 	if err = ds.conn.Exec(s); err != nil {
 		log.Printf("Update team laps %v", err)
 		return err
@@ -171,18 +181,21 @@ func (ds *DataStore) getAllTeams(s string) (Teams, error) {
 	return teams, err
 }
 
+// GetLeaderboard provides the list of N teams ordered by lap count
 func (ds *DataStore) GetLeaderboard(maxSize int) (Teams, error) {
-	s := fmt.Sprintf("SELECT * FROM %s ORDER BY %s DESC LIMIT %d", TEAMS_TBL, TEAM_LAPS, maxSize)
+	s := fmt.Sprintf("SELECT * FROM %s ORDER BY %s DESC LIMIT %d", tTeams, fTeamLaps, maxSize)
 	return ds.getAllTeams(s)
 }
 
+// GetTeams provides a list of teams
 func (ds *DataStore) GetTeams() (Teams, error) {
-	s := fmt.Sprintf("SELECT * FROM %s", TEAMS_TBL)
+	s := fmt.Sprintf("SELECT * FROM %s", tTeams)
 	return ds.getAllTeams(s)
 }
 
-func (ds *DataStore) GetTeamName(team_id int) (string, error) {
-	s := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %d", TEAM_NAME, TEAMS_TBL, TEAM_ID, team_id)
+// GetTeamName is a helper function for the "/teams/" handler
+func (ds *DataStore) GetTeamName(teamID int) (string, error) {
+	s := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %d", fTeamName, tTeams, fTeamID, teamID)
 	stmt, err := ds.conn.Prepare(s)
 	defer stmt.Close()
 	if err != nil {
@@ -206,7 +219,7 @@ func (ds *DataStore) GetTeamName(team_id int) (string, error) {
 
 func (ds *DataStore) insertTeams(teams Teams) error {
 	s := fmt.Sprintf("INSERT INTO %s(%s, %s, %s, %s) VALUES(?, ?, ?, ?)",
-		TEAMS_TBL, TEAM_ID, TEAM_NAME, TEAM_LEADER, TEAM_LAPS)
+		tTeams, fTeamID, fTeamName, fTeamLeader, fTeamLaps)
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
 		log.Printf("Prepare insertTeams %v", err)
@@ -224,6 +237,7 @@ func (ds *DataStore) insertTeams(teams Teams) error {
 	return nil
 }
 
+// InsertTeams takes a list of Team structs and inserts them in the DB
 func (ds *DataStore) InsertTeams(teams Teams) error {
 	err := ds.conn.WithTx(func() error {
 		return ds.insertTeams(teams)
@@ -236,7 +250,7 @@ func (ds *DataStore) InsertTeams(teams Teams) error {
 
 func (ds *DataStore) insertTags(tags Tags) error {
 	s := fmt.Sprintf("INSERT INTO %s(%s, %s, %s, %s) VALUES(?, ?, ?, ?)",
-		TAGS_TBL, TAG_ID, TEAM_ID, TAG_TIME, TAG_LAPS)
+		tTags, fTagID, fTeamID, fTagLastUpdated, fTagLaps)
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
 		log.Printf("Prepare insertTags %v", err)
@@ -252,6 +266,7 @@ func (ds *DataStore) insertTags(tags Tags) error {
 	return nil
 }
 
+// InsertTags takes a list of Tag structs and inserts them in the DB
 func (ds *DataStore) InsertTags(tags Tags) error {
 	err := ds.conn.WithTx(func() error {
 		return ds.insertTags(tags)
@@ -262,8 +277,9 @@ func (ds *DataStore) InsertTags(tags Tags) error {
 	return err
 }
 
-func (ds *DataStore) GetTagsForTeam(team_id int) (Tags, error) {
-	s := fmt.Sprintf("SELECT * FROM %s WHERE %s = %d", TAGS_TBL, TEAM_ID, team_id)
+// GetTagsForTeam supports the "/team/?" handler
+func (ds *DataStore) GetTagsForTeam(teamID int) (Tags, error) {
+	s := fmt.Sprintf("SELECT * FROM %s WHERE %s = %d", tTags, fTeamID, teamID)
 	var tags Tags
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
@@ -292,7 +308,7 @@ func (ds *DataStore) GetTagsForTeam(team_id int) (Tags, error) {
 	return tags, err
 }
 
-// Import reads the specified CSV file and populates the DB with teams and tags
+// Import reads the specified CSV file and populates the DB with teams and optional tags
 func (ds *DataStore) Import(fname string) error {
 	if file, err := os.Open(fname); err == nil {
 		defer file.Close()
@@ -333,56 +349,3 @@ func (ds *DataStore) Import(fname string) error {
 	}
 	return nil
 }
-
-/*
-func (ds *DataStore) Populate() {
-    var teams Teams
-    teams = append(teams, &Team{TeamID: 0, Name: "Foobar", Leader: "Joe Blow"})
-    teams = append(teams, &Team{TeamID: 1, Name: "LYB", Leader: "Jacki B"})
-    ds.InsertTeams(teams)
-
-    var tags Tags
-    tags = append(tags, &Tag{TagID: 123, TeamID: 0})
-    tags = append(tags, &Tag{TagID: 124, TeamID: 0})
-    tags = append(tags, &Tag{TagID: 125, TeamID: 1})
-    tags = append(tags, &Tag{TagID: 126, TeamID: 1})
-    ds.InsertTags(tags)
-
-    ds.IncrementLaps(123)
-    time.Sleep((MIN_LAP_SECS+1) * time.Second)
-    ds.IncrementLaps(123)
-
-    time.Sleep((MIN_LAP_SECS+1) * time.Second)
-    ds.IncrementLaps(124)
-    time.Sleep((MIN_LAP_SECS+1) * time.Second)
-    ds.IncrementLaps(124)
-    time.Sleep((MIN_LAP_SECS+1) * time.Second)
-    ds.IncrementLaps(124)
-
-    time.Sleep((MIN_LAP_SECS+1) * time.Second)
-    ds.IncrementLaps(125)
-    time.Sleep((MIN_LAP_SECS+1) * time.Second)
-    ds.IncrementLaps(125)
-    time.Sleep((MIN_LAP_SECS+1) * time.Second)
-    ds.IncrementLaps(125)
-    time.Sleep((MIN_LAP_SECS+1) * time.Second)
-    ds.IncrementLaps(125)
-
-    if teams, err := ds.GetLeaderboard(2); err == nil {
-        log.Printf("teams[0]: %v", teams[0])
-    }
-
-    if tags, err := ds.GetTagsForTeam(0); err == nil {
-        for _, t := range tags {
-            log.Printf("tags for team 0: %v", t)
-        }
-    }
-}
-
-
-func main() {
-    ds := ConnectToDB()
-    defer ds.Close()
-    ds.Populate()
-}
-*/
