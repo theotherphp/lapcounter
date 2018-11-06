@@ -32,7 +32,7 @@ type webServer struct {
 	ds                *DataStore
 	tagChannel        chan int
 	quitTagChannel    chan bool
-	notifyChannel     chan struct{}
+	notifyChannel     chan Notification
 	quitNotifyChannel chan bool
 	notifyClients     map[*websocket.Conn]*notifyClient
 }
@@ -66,13 +66,13 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 			if tags, err = ds.GetTagsForTeam(teamKey); err != nil {
 				log.Println("GetTagsForTeam: ", err)
 			}
-			var name string
-			if name, err = ds.GetTeamName(teamKey); err != nil {
+			var team Team
+			if team, err = ds.GetOneTeam(teamKey); err != nil {
 				log.Println("GetTagsForTeam: ", err)
 			}
 			svr.runTemplate(w, "./templates/team.html",
 				TeamParam{
-					Name: name,
+					Name: team.Name,
 					Tags: tags,
 				})
 		}
@@ -88,11 +88,18 @@ func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		type TeamsParam struct {
 			Teams []*Team
+			Laps  int
+			Miles float64
 		}
 
 		if teams, err := ds.GetTeams(); err == nil {
+			const lapsToMiles = 400 * 3.28084 / 5280
+			laps := 0
+			for _, t := range teams {
+				laps += t.Laps
+			}
 			svr.runTemplate(w, "./templates/teams.html",
-				TeamsParam{Teams: teams})
+				TeamsParam{Teams: teams, Laps: laps, Miles: float64(laps) * lapsToMiles})
 		}
 	} else if r.Method == "POST" {
 		log.Println("/teams/ POST unimplemented")
@@ -136,7 +143,9 @@ func (svr *webServer) serviceTagChannel() {
 	for {
 		select {
 		case tagKey := <-svr.tagChannel:
-			ds.IncrementLaps(tagKey)
+			if notif, err := ds.IncrementLaps(tagKey); err == nil {
+				svr.notifyChannel <- notif // Publish notification to the clients
+			}
 		case <-svr.quitTagChannel:
 			log.Println("serviceTagChannel exiting")
 			return
@@ -151,7 +160,7 @@ func (svr *webServer) serviceNotifyChannel() {
 		case notif := <-svr.notifyChannel:
 			log.Println("Notif: ", notif)
 		case <-svr.quitNotifyChannel:
-			log.Println("serviceTagChannel exiting")
+			log.Println("serviceNotifyChannel exiting")
 			return
 		}
 	}
@@ -203,13 +212,11 @@ func StartWebServer() {
 	svr := new(webServer)
 	svr.tagChannel = make(chan int, 10)
 	svr.quitTagChannel = make(chan bool)
-	svr.notifyChannel = make(chan struct{}, 10)
+	svr.notifyChannel = make(chan Notification, 10)
 	svr.quitNotifyChannel = make(chan bool)
 
-	/*
-	   svr.notifyChannel = make(chan Notification, 100)
-	   svr.notifyClients = make(map[*Conn]NotifyClient)
-	*/
+	// svr.notifyClients = make(map[*Conn]NotifyClient)
+
 	var httpsvr http.Server
 	httpsvr.Addr = ":8080"
 	quit := make(chan os.Signal, 1)

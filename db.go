@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,15 +16,15 @@ import (
 
 const (
 	tTeams      = "teams"
-	fTeamID     = "team_id"
-	fTeamName   = "team_name"
-	fTeamLeader = "team_leader"
 	fTeamLaps   = "team_laps"
+	fTeamLeader = "team_leader"
+	fTeamName   = "team_name"
+	fTeamID     = "team_id"
 
 	tTags           = "tags"
 	fTagID          = "tag_id"
 	fTagLaps        = "tag_laps"
-	fTagLastUpdated = "last_updated"
+	fTagLastUpdated = "tag_last_updated"
 
 	minLapSecs = 2.0
 )
@@ -38,22 +39,31 @@ type Team struct {
 	Laps   int
 	Leader string
 	Name   string
+	Rank   int // transient - not in DB
 	TeamID int
 }
 
-// Teams is a list of Team structs
+// Teams is an array of Team structs
 type Teams []*Team
 
 // Tag is an in-memory representation of a row in the tags table
 type Tag struct {
+	Laps        int
+	LastUpdated string
 	TagID       int
 	TeamID      int
-	LastUpdated string
-	Laps        int
 }
 
-// Tags is a list of Tag structs
+// Tags is an array of Tag structs
 type Tags []*Tag
+
+// Notification is how the server backend tells a browser client to display a tag read
+type Notification struct {
+	TagID    int
+	TeamID   int
+	TeamLaps int
+	TeamName string
+}
 
 // ConnectToDB is the way the web server connects to the DB from a goroutine
 func ConnectToDB() *DataStore {
@@ -69,9 +79,9 @@ func ConnectToDB() *DataStore {
 		log.Printf("PRAGMA %v", err)
 	}
 
-	s := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s TEXT,
-        %s TEXT, %s INTEGER)`,
-		tTeams, fTeamID, fTeamName, fTeamLeader, fTeamLaps)
+	s := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
+        %s TEXT, %s TEXT)`,
+		tTeams, fTeamID, fTeamLaps, fTeamLeader, fTeamName)
 	err = ds.conn.Exec(s)
 	if err != nil {
 		log.Printf("CREATE teams %v", err)
@@ -79,7 +89,7 @@ func ConnectToDB() *DataStore {
 
 	s = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
         %s TEXT, %s INTEGER, FOREIGN KEY(%s) REFERENCES %s(%s))`,
-		tTags, fTagID, fTeamID, fTagLastUpdated, fTagLaps, fTeamID, tTeams, fTeamID)
+		tTags, fTagID, fTagLaps, fTagLastUpdated, fTeamID, fTeamID, tTeams, fTeamID)
 	err = ds.conn.Exec(s)
 	if err != nil {
 		log.Printf("CREATE tags %v", err)
@@ -100,54 +110,87 @@ func (ds *DataStore) Close() {
 	ds.conn.Close()
 }
 
-// IncrementLaps increments the lap counts
-func (ds *DataStore) IncrementLaps(tagID int) error {
-	// Get the row data for the tagID we got from the RFID reader
-	s := fmt.Sprintf("SELECT %s,%s FROM %s WHERE %s = %d",
-		fTeamID, fTagLastUpdated, tTags, fTagID, tagID)
+func (ds *DataStore) getOneTag(tagID int, pLaps *int, pLastUpdated *string, pTagID *int, pTeamID *int) error {
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = %d",
+		fTagID, fTagLaps, fTagLastUpdated, fTeamID, tTags, fTagID, tagID)
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
-		log.Printf("Prepare IncrementLaps %v", err)
 		return err
 	}
 	defer stmt.Close()
-	var teamID int
-	var lastUpdated string
 	hasRow, err := stmt.Step()
 	if err == nil && hasRow {
-		err = stmt.Scan(&teamID, &lastUpdated)
-		if err != nil {
-			log.Printf("Scan IncrementLaps %v", err)
+		if err := stmt.Scan(pTagID, pLaps, pLastUpdated, pTeamID); err != nil {
+			return err
 		}
 	} else if !hasRow {
-		log.Printf("Unassigned tag: %d", tagID)
-		return nil
+		return errors.New("Unassigned tag")
 	}
+	return nil
+}
 
+func (ds *DataStore) incrementLaps(pTag *Tag) error {
 	// Check for duplicate tag reads (or attempted cheating)
 	now := time.Now()
-	if then, err := time.Parse(time.RFC1123, lastUpdated); err == nil {
+	if then, err := time.Parse(time.RFC1123, pTag.LastUpdated); err == nil {
 		if now.Sub(then).Seconds() < minLapSecs {
-			log.Printf("Duplicate read: %d", tagID)
 			return nil
 		}
 	}
 
 	// Increment lap count and last updated in the tags table
-	s = fmt.Sprintf("UPDATE %s SET %s = %s + 1, %s = \"%s\" WHERE %s = %d",
-		tTags, fTagLaps, fTagLaps, fTagLastUpdated, now.Format(time.RFC1123), fTagID, tagID)
-	if err = ds.conn.Exec(s); err != nil {
-		log.Printf("Update tag laps %v", err)
+	s := fmt.Sprintf("UPDATE %s SET %s = %s + 1, %s = \"%s\" WHERE %s = %d",
+		tTags, fTagLaps, fTagLaps, fTagLastUpdated, now.Format(time.RFC1123), fTagID, pTag.TagID)
+	if err := ds.conn.Exec(s); err != nil {
 		return err
 	}
 
 	// Increament lap count in teams table
 	// I go back and forth over shadowing this data or calculating it
 	s = fmt.Sprintf("UPDATE %s SET %s = %s + 1 WHERE %s = %d",
-		tTeams, fTeamLaps, fTeamLaps, fTeamID, teamID)
-	if err = ds.conn.Exec(s); err != nil {
-		log.Printf("Update team laps %v", err)
+		tTeams, fTeamLaps, fTeamLaps, fTeamID, pTag.TeamID)
+	if err := ds.conn.Exec(s); err != nil {
 		return err
+	}
+	return nil
+}
+
+// IncrementLaps updates the DB and generates notifications for the browser client(s)
+func (ds *DataStore) IncrementLaps(tagID int) (Notification, error) {
+	var tag Tag
+	var notif Notification
+
+	if err := ds.getOneTag(tagID, &tag.Laps, &tag.LastUpdated, &tag.TagID, &tag.TeamID); err != nil {
+		return notif, err
+	}
+	if err := ds.incrementLaps(&tag); err != nil {
+		return notif, err
+	}
+	var leader string // unused
+	if err := ds.getOneTeam(tag.TeamID, &notif.TeamLaps, &leader, &notif.TeamName, &notif.TeamID); err != nil {
+		return notif, err
+	}
+	notif.TagID = tagID
+	return notif, nil
+}
+
+// GetOneTeam returns all fields for teamID's row in the teams table
+func (ds *DataStore) getOneTeam(teamID int, pLaps *int, pLeader *string, pName *string, pTeamID *int) error {
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = %d",
+		fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamID, teamID)
+	stmt, err := ds.conn.Prepare(s)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	hasRow, err := stmt.Step()
+	if err != nil {
+		return err
+	}
+	if hasRow {
+		if err := stmt.Scan(pTeamID, pLaps, pLeader, pName); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -171,7 +214,7 @@ func (ds *DataStore) getAllTeams(s string) (Teams, error) {
 		}
 
 		var t Team
-		err = stmt.Scan(&t.TeamID, &t.Name, &t.Leader, &t.Laps)
+		err = stmt.Scan(&t.TeamID, &t.Laps, &t.Leader, &t.Name)
 		if err != nil {
 			log.Printf("Scan %v", err)
 			return teams, err
@@ -183,43 +226,27 @@ func (ds *DataStore) getAllTeams(s string) (Teams, error) {
 
 // GetLeaderboard provides the list of N teams ordered by lap count
 func (ds *DataStore) GetLeaderboard(maxSize int) (Teams, error) {
-	s := fmt.Sprintf("SELECT * FROM %s ORDER BY %s DESC LIMIT %d", tTeams, fTeamLaps, maxSize)
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s ORDER BY %s DESC LIMIT %d",
+		fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamLaps, maxSize)
 	return ds.getAllTeams(s)
+}
+
+//GetOneTeam is a helper function for the /teams/ handler
+func (ds *DataStore) GetOneTeam(teamID int) (Team, error) {
+	var team Team
+	err := ds.getOneTeam(teamID, &team.Laps, &team.Leader, &team.Name, &team.TeamID)
+	return team, err
 }
 
 // GetTeams provides a list of teams
 func (ds *DataStore) GetTeams() (Teams, error) {
-	s := fmt.Sprintf("SELECT * FROM %s", tTeams)
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s", fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams)
 	return ds.getAllTeams(s)
-}
-
-// GetTeamName is a helper function for the "/teams/" handler
-func (ds *DataStore) GetTeamName(teamID int) (string, error) {
-	s := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %d", fTeamName, tTeams, fTeamID, teamID)
-	stmt, err := ds.conn.Prepare(s)
-	defer stmt.Close()
-	if err != nil {
-		return "", err
-	}
-
-	hasRow, err := stmt.Step()
-	if err != nil {
-		return "", err
-	}
-
-	var name string
-	if hasRow {
-		err = stmt.Scan(&name)
-		if err != nil {
-			return "", err
-		}
-	}
-	return name, nil
 }
 
 func (ds *DataStore) insertTeams(teams Teams) error {
 	s := fmt.Sprintf("INSERT INTO %s(%s, %s, %s, %s) VALUES(?, ?, ?, ?)",
-		tTeams, fTeamID, fTeamName, fTeamLeader, fTeamLaps)
+		tTeams, fTeamLaps, fTeamLeader, fTeamName, fTeamID)
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
 		log.Printf("Prepare insertTeams %v", err)
@@ -228,7 +255,7 @@ func (ds *DataStore) insertTeams(teams Teams) error {
 	defer stmt.Close()
 
 	for _, t := range teams {
-		if err = stmt.Exec(t.TeamID, t.Name, t.Leader, 0); err != nil {
+		if err = stmt.Exec(0, t.Leader, t.Name, t.TeamID); err != nil {
 			log.Printf("Exec insertTeams %v", err)
 			return err
 		}
@@ -279,7 +306,8 @@ func (ds *DataStore) InsertTags(tags Tags) error {
 
 // GetTagsForTeam supports the "/team/?" handler
 func (ds *DataStore) GetTagsForTeam(teamID int) (Tags, error) {
-	s := fmt.Sprintf("SELECT * FROM %s WHERE %s = %d", tTags, fTeamID, teamID)
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = %d",
+		fTagID, fTeamID, fTagLastUpdated, fTagLaps, tTags, fTeamID, teamID)
 	var tags Tags
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
