@@ -11,9 +11,14 @@ func main() {
 	importFilePtr := flag.String("import", "", "CSV file to import")
 	flag.Parse()
 	if *importFilePtr != "" {
-		ds := ConnectToDB()
+		ds, err := ConnectToDB()
+		if err != nil {
+			log.Println("main ConnectToDB: ", err)
+			return
+		}
 		if err := ds.Import(*importFilePtr); err != nil {
-			log.Printf("Import %v", err)
+			log.Println("Import: ", err)
+			return
 		}
 		ds.Close()
 	}

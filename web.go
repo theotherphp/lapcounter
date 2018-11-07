@@ -52,7 +52,11 @@ func (svr *webServer) runTemplate(w http.ResponseWriter, name string, param inte
 }
 
 func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
-	ds := ConnectToDB()
+	ds, err := ConnectToDB()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	defer ds.Close()
 
 	if r.Method == "GET" {
@@ -68,7 +72,7 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 			}
 			var team Team
 			if team, err = ds.GetOneTeam(teamKey); err != nil {
-				log.Println("GetTagsForTeam: ", err)
+				log.Println("GetOneTeam: ", err)
 			}
 			svr.runTemplate(w, "./templates/team.html",
 				TeamParam{
@@ -82,7 +86,11 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
-	ds := ConnectToDB()
+	ds, err := ConnectToDB()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	defer ds.Close()
 
 	if r.Method == "GET" {
@@ -111,7 +119,7 @@ var upgrader = websocket.Upgrader{}
 func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 	log.Println("handleLaps starting")
 	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil { // Separate line so conn is in scope for goroutine below
+	if err != nil {
 		log.Println("/laps/ upgrader.Upgrade: ", err)
 		return
 	}
@@ -137,7 +145,11 @@ func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 func (svr *webServer) serviceTagChannel() {
 	// Consume the tag channel, updating the data store
 	log.Println("serviceTagChannel starting")
-	ds := ConnectToDB()
+	ds, err := ConnectToDB()
+	if err != nil {
+		log.Println("tagChannel ConnectToDB: ", err)
+		return
+	}
 	defer ds.Close()
 
 	for {

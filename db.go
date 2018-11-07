@@ -66,67 +66,49 @@ type Notification struct {
 }
 
 // ConnectToDB is the way the web server connects to the DB from a goroutine
-func ConnectToDB() *DataStore {
+func ConnectToDB() (*DataStore, error) {
 	conn, err := sqlite3.Open("relay.db")
 	if err != nil {
-		log.Printf("sqlite3.open %v", err)
+		log.Fatalln("Open: ", err)
+		return nil, err
 	}
 	ds := new(DataStore)
 	ds.conn = conn
 
-	err = ds.conn.Exec("PRAGMA foreign_keys = ON")
-	if err != nil {
-		log.Printf("PRAGMA %v", err)
+	if err := ds.conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		log.Fatalln("Pragma: ", err)
+		return nil, err
 	}
 
 	s := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
         %s TEXT, %s TEXT)`,
 		tTeams, fTeamID, fTeamLaps, fTeamLeader, fTeamName)
-	err = ds.conn.Exec(s)
-	if err != nil {
-		log.Printf("CREATE teams %v", err)
+	if err := ds.conn.Exec(s); err != nil {
+		log.Fatalln("CREATE teams: ", err)
+		return nil, err
 	}
 
 	s = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
         %s TEXT, %s INTEGER, FOREIGN KEY(%s) REFERENCES %s(%s))`,
 		tTags, fTagID, fTagLaps, fTagLastUpdated, fTeamID, fTeamID, tTeams, fTeamID)
-	err = ds.conn.Exec(s)
-	if err != nil {
-		log.Printf("CREATE tags %v", err)
+	if err := ds.conn.Exec(s); err != nil {
+		log.Fatalln("CREATE tags: ", err)
+		return nil, err
 	}
 
 	// Allow indexed query for tags with a given team_id
 	s = fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_team_id ON %s(%s)", tTags, fTeamID)
-	err = ds.conn.Exec(s)
-	if err != nil {
-		log.Printf("CREATE idx_team_id %v", err)
+	if err := ds.conn.Exec(s); err != nil {
+		log.Fatalln("CREATE idx_team_id: ", err)
+		return nil, err
 	}
-	return ds
+
+	return ds, nil
 }
 
 // Close closes the SQLite3 conn
 func (ds *DataStore) Close() {
-	log.Println("DB closing")
 	ds.conn.Close()
-}
-
-func (ds *DataStore) getOneTag(tagID int, pLaps *int, pLastUpdated *string, pTagID *int, pTeamID *int) error {
-	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = %d",
-		fTagID, fTagLaps, fTagLastUpdated, fTeamID, tTags, fTagID, tagID)
-	stmt, err := ds.conn.Prepare(s)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	hasRow, err := stmt.Step()
-	if err == nil && hasRow {
-		if err := stmt.Scan(pTagID, pLaps, pLastUpdated, pTeamID); err != nil {
-			return err
-		}
-	} else if !hasRow {
-		return errors.New("Unassigned tag")
-	}
-	return nil
 }
 
 func (ds *DataStore) incrementLaps(pTag *Tag) error {
@@ -174,7 +156,39 @@ func (ds *DataStore) IncrementLaps(tagID int) (Notification, error) {
 	return notif, nil
 }
 
-// GetOneTeam returns all fields for teamID's row in the teams table
+func (ds *DataStore) getAllTeams(s string) (Teams, error) {
+	var teams Teams
+	stmt, err := ds.conn.Prepare(s)
+	if err != nil {
+		return teams, err
+	}
+	defer stmt.Close()
+	for {
+		hasRow, err := stmt.Step()
+		if err != nil {
+			return teams, err
+		}
+		if !hasRow {
+			break
+		}
+
+		var t Team
+		err = stmt.Scan(&t.TeamID, &t.Laps, &t.Leader, &t.Name)
+		if err != nil {
+			return teams, err
+		}
+		teams = append(teams, &t)
+	}
+	return teams, err
+}
+
+// GetLeaderboard provides the list of N teams ordered by lap count
+func (ds *DataStore) GetLeaderboard(maxSize int) (Teams, error) {
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s ORDER BY %s DESC LIMIT %d",
+		fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamLaps, maxSize)
+	return ds.getAllTeams(s)
+}
+
 func (ds *DataStore) getOneTeam(teamID int, pLaps *int, pLeader *string, pName *string, pTeamID *int) error {
 	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = %d",
 		fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamID, teamID)
@@ -195,42 +209,6 @@ func (ds *DataStore) getOneTeam(teamID int, pLaps *int, pLeader *string, pName *
 	return nil
 }
 
-func (ds *DataStore) getAllTeams(s string) (Teams, error) {
-	var teams Teams
-	stmt, err := ds.conn.Prepare(s)
-	if err != nil {
-		log.Printf("Prepare %v", err)
-		return teams, err
-	}
-	defer stmt.Close()
-	for {
-		hasRow, err := stmt.Step()
-		if err != nil {
-			log.Printf("Step %v", err)
-			return teams, err
-		}
-		if !hasRow {
-			break
-		}
-
-		var t Team
-		err = stmt.Scan(&t.TeamID, &t.Laps, &t.Leader, &t.Name)
-		if err != nil {
-			log.Printf("Scan %v", err)
-			return teams, err
-		}
-		teams = append(teams, &t)
-	}
-	return teams, err
-}
-
-// GetLeaderboard provides the list of N teams ordered by lap count
-func (ds *DataStore) GetLeaderboard(maxSize int) (Teams, error) {
-	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s ORDER BY %s DESC LIMIT %d",
-		fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamLaps, maxSize)
-	return ds.getAllTeams(s)
-}
-
 //GetOneTeam is a helper function for the /teams/ handler
 func (ds *DataStore) GetOneTeam(teamID int) (Team, error) {
 	var team Team
@@ -249,14 +227,12 @@ func (ds *DataStore) insertTeams(teams Teams) error {
 		tTeams, fTeamLaps, fTeamLeader, fTeamName, fTeamID)
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
-		log.Printf("Prepare insertTeams %v", err)
 		return err
 	}
 	defer stmt.Close()
 
 	for _, t := range teams {
 		if err = stmt.Exec(0, t.Leader, t.Name, t.TeamID); err != nil {
-			log.Printf("Exec insertTeams %v", err)
 			return err
 		}
 	}
@@ -269,9 +245,6 @@ func (ds *DataStore) InsertTeams(teams Teams) error {
 	err := ds.conn.WithTx(func() error {
 		return ds.insertTeams(teams)
 	})
-	if err != nil {
-		log.Printf("InsertTeams %v", err)
-	}
 	return err
 }
 
@@ -280,13 +253,11 @@ func (ds *DataStore) insertTags(tags Tags) error {
 		tTags, fTagID, fTeamID, fTagLastUpdated, fTagLaps)
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
-		log.Printf("Prepare insertTags %v", err)
 		return err
 	}
 	defer stmt.Close()
 	for _, tag := range tags {
-		if err = stmt.Exec(tag.TagID, tag.TeamID, "", 0); err != nil {
-			log.Printf("Exec insertTags %v", err)
+		if err := stmt.Exec(tag.TagID, tag.TeamID, "", 0); err != nil {
 			return err
 		}
 	}
@@ -298,10 +269,26 @@ func (ds *DataStore) InsertTags(tags Tags) error {
 	err := ds.conn.WithTx(func() error {
 		return ds.insertTags(tags)
 	})
-	if err != nil {
-		log.Printf("InsertTags: %v", err)
-	}
 	return err
+}
+
+func (ds *DataStore) getOneTag(tagID int, pLaps *int, pLastUpdated *string, pTagID *int, pTeamID *int) error {
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = %d",
+		fTagID, fTagLaps, fTagLastUpdated, fTeamID, tTags, fTagID, tagID)
+	stmt, err := ds.conn.Prepare(s)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	hasRow, err := stmt.Step()
+	if err == nil && hasRow {
+		if err := stmt.Scan(pTagID, pLaps, pLastUpdated, pTeamID); err != nil {
+			return err
+		}
+	} else if !hasRow {
+		return errors.New("Unassigned tag")
+	}
+	return nil
 }
 
 // GetTagsForTeam supports the "/team/?" handler
@@ -311,14 +298,12 @@ func (ds *DataStore) GetTagsForTeam(teamID int) (Tags, error) {
 	var tags Tags
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
-		log.Printf("GetTagsForTeam Prepare %v", err)
 		return tags, err
 	}
 	defer stmt.Close()
 	for {
 		hasRow, err := stmt.Step()
 		if err != nil {
-			log.Printf("GetTagsForTeam Step %v", err)
 			return tags, err
 		}
 		if !hasRow {
@@ -328,7 +313,6 @@ func (ds *DataStore) GetTagsForTeam(teamID int) (Tags, error) {
 		var tag Tag
 		err = stmt.Scan(&tag.TagID, &tag.TeamID, &tag.LastUpdated, &tag.Laps)
 		if err != nil {
-			log.Printf("GetTagsForTeam Scan %v", err)
 			return tags, err
 		}
 		tags = append(tags, &tag)
