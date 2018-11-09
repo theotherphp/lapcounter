@@ -2,15 +2,13 @@ package main
 
 import (
 	"context"
-	"time"
-
 	"html/template"
-	// "encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -56,10 +54,15 @@ func (svr *webServer) runTemplate(w http.ResponseWriter, name string, param inte
 	}
 }
 
+func reportError(w http.ResponseWriter, err error, logHint string) {
+	log.Println(logHint, err)
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+}
+
 func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 	ds, err := ConnectToDB()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		reportError(w, err, "ConnectToDB /team: ")
 		return
 	}
 	defer ds.Close()
@@ -71,13 +74,15 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 				Tags []*Tag
 			}
 
-			var tags Tags
-			if tags, err = ds.GetTagsForTeam(teamKey); err != nil {
-				log.Println("GetTagsForTeam: ", err)
+			tags, err := ds.GetTagsForTeam(teamKey)
+			if err != nil {
+				reportError(w, err, "GetTagsForTeam: ")
+				return
 			}
-			var team Team
-			if team, err = ds.GetOneTeam(teamKey); err != nil {
-				log.Println("GetOneTeam: ", err)
+			team, err := ds.GetOneTeam(teamKey)
+			if err != nil {
+				reportError(w, err, "GetOneTeam: ")
+				return
 			}
 			svr.runTemplate(w, "./templates/team.html",
 				TeamParam{
@@ -93,7 +98,7 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 	ds, err := ConnectToDB()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		reportError(w, err, "ConnectToDB /teams/: ")
 		return
 	}
 	defer ds.Close()
@@ -105,19 +110,22 @@ func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 			Miles float64
 		}
 
-		if teams, err := ds.GetTeams(); err == nil {
-			const lapsToMiles = 400 * 3.28084 / 5280
-			laps := 0
-			for _, t := range teams {
-				laps += t.Laps
-			}
-			svr.runTemplate(w, "./templates/teams.html",
-				TeamsParam{
-					Teams: teams,
-					Laps:  laps,
-					Miles: float64(laps) * lapsToMiles,
-				})
+		teams, err := ds.GetTeams()
+		if err != nil {
+			reportError(w, err, "GetTeams: ")
+			return
 		}
+		const lapsToMiles = 400 * 3.28084 / 5280
+		laps := 0
+		for _, t := range teams {
+			laps += t.Laps
+		}
+		svr.runTemplate(w, "./templates/teams.html",
+			TeamsParam{
+				Teams: teams,
+				Laps:  laps,
+				Miles: float64(laps) * lapsToMiles,
+			})
 	} else if r.Method == "POST" {
 		log.Println("/teams/ POST unimplemented")
 	}
@@ -178,25 +186,26 @@ func (svr *webServer) serviceTagChannel() {
 func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("/notify/ upgrader.Upgrade ", err)
+		log.Println("/notify upgrader.Upgrade ", err)
 		return
 	}
 
-	nc := &notifyClient{send: make(chan Notification, 10)}
-	svr.register <- nc
+	client := &notifyClient{send: make(chan Notification, 10)}
+	svr.register <- client
 	for {
 		select {
-		case notify := <-nc.send:
-			if err := conn.WriteJSON(notify); err != nil {
+		case notif := <-client.send:
+			// send the notification to the browser client
+			if err := conn.WriteJSON(notif); err != nil {
 				log.Println("WriteJSON: ", err)
-				svr.unregister <- nc
+				svr.unregister <- client
 				return
 			}
 		}
 	}
 }
 
-// serviceNotifyChannel is a waystation for notifications between the DB and the handlers
+// serviceNotifyChannel is a waystation for notifications between the DB and the /notify handlers
 // it also provides a concurrency-safe map to fan out notifications to many clients
 func (svr *webServer) serviceNotifyChannel() {
 	log.Println("serviceNotifyChannel starting")
@@ -209,8 +218,8 @@ func (svr *webServer) serviceNotifyChannel() {
 		case ur := <-svr.unregister:
 			delete(clients, ur)
 		case notif := <-svr.notify:
-			for nc := range clients {
-				nc.send <- notif
+			for client := range clients {
+				client.send <- notif // send the notification to running /notify handlers
 			}
 		case <-svr.quitNotify:
 			log.Println("serviceNotifyChannel exiting")
@@ -244,7 +253,7 @@ func StartWebServer() {
 
 	http.HandleFunc("/", svr.handleRoot)
 	http.HandleFunc("/team/", svr.handleTeam)
-	http.HandleFunc("/teams/", svr.handleTeams)
+	http.HandleFunc("/teams", svr.handleTeams)
 	http.HandleFunc("/laps", svr.handleLaps)
 	http.HandleFunc("/notify", svr.handleNotify)
 	http.Handle("/templates/", http.StripPrefix("/templates/", http.FileServer(http.Dir("./templates"))))
