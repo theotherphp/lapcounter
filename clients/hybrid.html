@@ -1,0 +1,30 @@
+<!DOCTYPE HTML>
+
+<html>
+   <head>
+      
+      <script type = "text/javascript">
+         function ListenForNotifications() {
+            if ("WebSocket" in window) {
+               var ws = new WebSocket("ws://localhost:8080/notify");
+               ws.onopen = function() {
+                  console.log("onopen");
+               };
+               ws.onmessage = function (evt) { 
+                  var received_msg = evt.data;
+                  console.log(received_msg);
+               };
+               ws.onclose = function() {                   
+                  console.log("onclose"); 
+               };
+            } else {
+               console.log("WebSocket not in window");
+            }
+         }
+      </script>
+		
+   </head>
+   
+   <body onload="ListenForNotifications()">
+   </body>
+</html>

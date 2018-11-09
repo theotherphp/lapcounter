@@ -116,7 +116,7 @@ func (ds *DataStore) incrementLaps(pTag *Tag) error {
 	now := time.Now()
 	if then, err := time.Parse(time.RFC1123, pTag.LastUpdated); err == nil {
 		if now.Sub(then).Seconds() < minLapSecs {
-			return nil
+			return errors.New("Duplicate read")
 		}
 	}
 

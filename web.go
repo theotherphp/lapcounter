@@ -19,22 +19,27 @@ import (
    Theory of Operation
    1. There are RESTful routes to support the admin web pages for teams and tags
    2. There are Gorilla Websockets to support the RFID tag readers and the TV display
-   3. Gorountines and channels support concurrent non-blocking Websockets
+   3. No blocking and no locking. Everything is goroutines and channels
+   4. There are one-per-connection goroutines to "handle" incoming lap/tag counts and outgoing notifications
+   5. There are singleton goroutines to "service" the channels which mediate cross-goroutine communication
 */
 
 type notifyClient struct {
-	conn    *websocket.Conn
-	maxRank int
-	// chanForThisConn chan Notification
+	send chan Notification // if I knew how to make a channel of channels I wouldn't need this
 }
 
 type webServer struct {
-	ds                *DataStore
-	tagChannel        chan int
-	quitTagChannel    chan bool
-	notifyChannel     chan Notification
-	quitNotifyChannel chan bool
-	notifyClients     map[*websocket.Conn]*notifyClient
+	ds *DataStore
+
+	// Incoming tag reads
+	tags     chan int
+	quitTags chan bool
+
+	// Outgoing notifications
+	notify     chan Notification
+	quitNotify chan bool
+	register   chan *notifyClient
+	unregister chan *notifyClient
 }
 
 func (svr *webServer) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +112,11 @@ func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 				laps += t.Laps
 			}
 			svr.runTemplate(w, "./templates/teams.html",
-				TeamsParam{Teams: teams, Laps: laps, Miles: float64(laps) * lapsToMiles})
+				TeamsParam{
+					Teams: teams,
+					Laps:  laps,
+					Miles: float64(laps) * lapsToMiles,
+				})
 		}
 	} else if r.Method == "POST" {
 		log.Println("/teams/ POST unimplemented")
@@ -116,6 +125,7 @@ func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 
 var upgrader = websocket.Upgrader{}
 
+// handleLaps is the HTTP websocket handler for incoming tag reads from the RFID readers
 func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 	log.Println("handleLaps starting")
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -125,12 +135,11 @@ func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Publish tag reads to the tag channel
 	for {
 		if _, msg, err := conn.ReadMessage(); err == nil {
-			tagKey, err := strconv.Atoi(string(msg))
+			tagID, err := strconv.Atoi(string(msg))
 			if err == nil {
-				svr.tagChannel <- tagKey
+				svr.tags <- tagID // Publish tag reads to the tag channel
 			} else {
 				log.Println("strconv.Atoi: ", msg)
 			}
@@ -142,8 +151,8 @@ func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 	log.Println("handleLaps exiting")
 }
 
+// serviceTagChannel consumes the tag channel, allowing DB updates to be async with incoming tag reads
 func (svr *webServer) serviceTagChannel() {
-	// Consume the tag channel, updating the data store
 	log.Println("serviceTagChannel starting")
 	ds, err := ConnectToDB()
 	if err != nil {
@@ -154,80 +163,72 @@ func (svr *webServer) serviceTagChannel() {
 
 	for {
 		select {
-		case tagKey := <-svr.tagChannel:
+		case tagKey := <-svr.tags: // Consume the tag channel
 			if notif, err := ds.IncrementLaps(tagKey); err == nil {
-				svr.notifyChannel <- notif // Publish notification to the clients
+				svr.notify <- notif // Publish notification to the clients
 			}
-		case <-svr.quitTagChannel:
+		case <-svr.quitTags:
 			log.Println("serviceTagChannel exiting")
 			return
 		}
 	}
 }
 
-func (svr *webServer) serviceNotifyChannel() {
-	log.Println("serviceNotifyChannel starting")
+// handleNotify is the HTTP websocket handler for browser clients to receive notifications
+func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("/notify/ upgrader.Upgrade ", err)
+		return
+	}
+
+	nc := &notifyClient{send: make(chan Notification, 10)}
+	svr.register <- nc
 	for {
 		select {
-		case notif := <-svr.notifyChannel:
-			log.Println("Notif: ", notif)
-		case <-svr.quitNotifyChannel:
+		case notify := <-nc.send:
+			if err := conn.WriteJSON(notify); err != nil {
+				log.Println("WriteJSON: ", err)
+				svr.unregister <- nc
+				return
+			}
+		}
+	}
+}
+
+// serviceNotifyChannel is a waystation for notifications between the DB and the handlers
+// it also provides a concurrency-safe map to fan out notifications to many clients
+func (svr *webServer) serviceNotifyChannel() {
+	log.Println("serviceNotifyChannel starting")
+	clients := make(map[*notifyClient]bool)
+
+	for {
+		select {
+		case r := <-svr.register:
+			clients[r] = true
+		case ur := <-svr.unregister:
+			delete(clients, ur)
+		case notif := <-svr.notify:
+			for nc := range clients {
+				nc.send <- notif
+			}
+		case <-svr.quitNotify:
 			log.Println("serviceNotifyChannel exiting")
 			return
 		}
 	}
 }
 
-/*
-func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
-    conn, err := upgrader.Upgrade(w, r, nil)
-    if err != nil {  // Separate line so conn is in scope for goroutine below
-        log.Println("/notify/ upgrader.Upgrade ", err)
-    }
-
-    maxRank, err := strconv.Atoi(r.URL.Query().Get("maxRank"))
-    if err != nil {
-        maxRank = -1
-    }
-    ch := make(chan Notification, 10)
-    cli := NotifyClient{
-        maxRank: maxRank,
-        chanForThisConn: ch,
-        conn: conn}
-    svr.notifyClients[conn] = &cli
-    go svr.notify(&cli)
-}
-
-
-func (svr *webServer) notify(cli *NotifyClient) {
-    for {
-        notification := <- cli.chanForThisConn
-        if cli.maxRank > 0 && notification.team_rank > cli.maxRank {
-            // This client is a leaderboard, interested in the top N teams
-            continue
-        }
-        if payload, err := json.marshal(notification); err != nil {
-            fmt.Println("json.marshal: ", err)
-            continue
-        }
-        if err := cli.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-            fmt.Println("WriteMessage: ", err)
-            delete(svr.notifyClients, cli.conn)
-            break
-        }
-    }
-}
-*/
-
 // StartWebServer starts and stops the app and its goroutines
 func StartWebServer() {
-	svr := new(webServer)
-	svr.tagChannel = make(chan int, 10)
-	svr.quitTagChannel = make(chan bool)
-	svr.notifyChannel = make(chan Notification, 10)
-	svr.quitNotifyChannel = make(chan bool)
-
-	// svr.notifyClients = make(map[*Conn]NotifyClient)
+	svr := &webServer{
+		tags:       make(chan int, 10),
+		quitTags:   make(chan bool),
+		notify:     make(chan Notification, 10),
+		quitNotify: make(chan bool),
+		register:   make(chan *notifyClient),
+		unregister: make(chan *notifyClient),
+	}
 
 	var httpsvr http.Server
 	httpsvr.Addr = ":8080"
@@ -244,9 +245,10 @@ func StartWebServer() {
 	http.HandleFunc("/", svr.handleRoot)
 	http.HandleFunc("/team/", svr.handleTeam)
 	http.HandleFunc("/teams/", svr.handleTeams)
-	http.HandleFunc("/laps/", svr.handleLaps)
-	// http.HandleFunc("/notify/", svr.handleNotify)
+	http.HandleFunc("/laps", svr.handleLaps)
+	http.HandleFunc("/notify", svr.handleNotify)
 	http.Handle("/templates/", http.StripPrefix("/templates/", http.FileServer(http.Dir("./templates"))))
+	http.Handle("/clients/", http.StripPrefix("/clients/", http.FileServer(http.Dir("./clients"))))
 
 	go svr.serviceTagChannel()
 	go svr.serviceNotifyChannel()
@@ -254,8 +256,8 @@ func StartWebServer() {
 	if err := httpsvr.ListenAndServe(); err != http.ErrServerClosed {
 		log.Println("http.ListenAndServe: ", err)
 	}
-	svr.quitTagChannel <- true
-	svr.quitNotifyChannel <- true
+	svr.quitTags <- true
+	svr.quitNotify <- true
 
 	// Wait for goroutines to quit so we close the DB cleanly
 	// I thought unbuffered channels were synchronous so this seems odd
