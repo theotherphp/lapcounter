@@ -17,12 +17,12 @@
             </thead>
         </table>
         <transition-group v-if="notifications.length > 0" name="slide-in" id="ticker">
-            <table v-for="notif in notifications" :key="notif.TagID" class="notification">
+            <table v-for="n in notifications" :key="n.TagID" class="notification">
                 <tr>
-                    <td class="tag-id">{{ notif.TagID }}</td>
-                    <td class="team-name">{{ notif.TeamName }}</td>
-                    <td class="team-laps">{{ notif.TeamLaps }}</td>
-                    <td class="team-rank">{{ notif.TeamRank }}</td>
+                    <td class="tag-id">{{ n.TagID }}</td>
+                    <td class="team-name">{{ n.TeamName }}</td>
+                    <td class="team-laps">{{ n.TeamLaps }}</td>
+                    <td class="team-rank">{{ n.TeamRank }}</td>
                 </tr>
             </table>
         </transition-group>

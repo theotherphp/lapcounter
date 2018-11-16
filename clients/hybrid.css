@@ -1,3 +1,6 @@
+body {
+    background-color: lightgray;
+}
 table {
     font-family: sans-serif;
     width: 100%;
@@ -10,7 +13,10 @@ td, th {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-th {color: purple}
+th {
+    background-color: purple; 
+    color: white;
+}
 
 .tag-id    {width: 10%}
 .team-name {width: 50%}
@@ -21,7 +27,6 @@ th {color: purple}
     transition: all 1s;
     width: 100%;
 }
-
 .slide-in-enter-active {
     transition: transform 1s;
 }
