@@ -13,12 +13,14 @@
             <th>Name</th>
             <th>Leader</th>
             <th>Laps</th>
+            <th>Rank</th>
         </tr>
         {{range $index, $element := .Teams}}
             <tr>
                 <td><a href="/team/{{.TeamID}}">{{.Name}}</a></td>
                 <td>{{.Leader}}</td>
                 <td>{{.Laps}}</td>
+                <td>{{.Rank}}</td>
             </tr>
         {{end}}
 </body>
