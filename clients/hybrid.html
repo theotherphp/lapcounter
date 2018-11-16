@@ -6,26 +6,26 @@
    </head>
    
     <body onload="initialize()">
-        <div id="ticker">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Tag</th>
-                        <th>Team</th>
-                        <th>Team Laps</th>
-                        <th>Team Rank</th>
-                    </tr>
-                </thead>
-                <transition-group tag="tbody" name="scroll" class="list-item">
-                    <tr v-for="(notif, index) in items" :key="notif.TagID">
-                        <td>{{ notif.TagID }}</td>
-                        <td>{{ notif.TeamName }}</td>
-                        <td>{{ notif.TeamLaps }}</td>
-                        <td>{{ notif.TeamRank }}</td>
-                    </tr>
-                </transition-group>
+        <table>
+            <thead>
+                <tr>
+                    <th class="tag-id">Tag</th>
+                    <th class="team-name">Team</th>
+                    <th class="team-laps">Team Laps</th>
+                    <th class="team-rank">Team Rank</th>
+                </tr>
+            </thead>
+        </table>
+        <transition-group v-if="notifications.length > 0" name="slide-in" id="ticker">
+            <table v-for="notif in notifications" :key="notif.TagID" class="notification">
+                <tr>
+                    <td class="tag-id">{{ notif.TagID }}</td>
+                    <td class="team-name">{{ notif.TeamName }}</td>
+                    <td class="team-laps">{{ notif.TeamLaps }}</td>
+                    <td class="team-rank">{{ notif.TeamRank }}</td>
+                </tr>
             </table>
-        </div>
+        </transition-group>
 
         <script src="https://cdn.jsdelivr.net/npm/vue@2.5.17/dist/vue.js"></script>
         <script src="/clients/hybrid.js"></script>

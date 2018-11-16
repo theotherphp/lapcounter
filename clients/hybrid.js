@@ -2,9 +2,7 @@ function initialize() {
     var app = new Vue({
         el: '#ticker',
         data: {
-        items: [
-            { message: 'Ready' }
-        ]
+            notifications: []
         }
     })
     if ("WebSocket" in window) {
@@ -14,11 +12,10 @@ function initialize() {
         };
         ws.onmessage = function (evt) { 
             var notif = JSON.parse(evt.data);
-            // console.log(notif);
-            if (app.items.length > 9) {
-                app.items.pop();
+            if (app.notifications.length > 9) {
+                app.notifications.pop();
             }
-            app.items.unshift(notif);
+            app.notifications.unshift(notif);
 
         };
         ws.onclose = function() {                   
