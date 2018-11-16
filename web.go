@@ -184,6 +184,9 @@ func (svr *webServer) serviceTagChannel() {
 
 // handleNotify is the HTTP websocket handler for browser clients to receive notifications
 func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
+	upgrader.CheckOrigin = func(r *http.Request) bool {
+		return true
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("/notify upgrader.Upgrade ", err)
