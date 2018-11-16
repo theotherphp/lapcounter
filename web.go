@@ -184,6 +184,7 @@ func (svr *webServer) serviceTagChannel() {
 
 // handleNotify is the HTTP websocket handler for browser clients to receive notifications
 func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
+	log.Println("handleNotify starting")
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
 	}
@@ -200,7 +201,7 @@ func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
 		case notif := <-client.send:
 			// send the notification to the browser client
 			if err := conn.WriteJSON(notif); err != nil {
-				log.Println("WriteJSON: ", err)
+				log.Println("handleNotify write failed, returning")
 				svr.unregister <- client
 				return
 			}
