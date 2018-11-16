@@ -2,29 +2,32 @@
 
 <html>
    <head>
-      
-      <script type = "text/javascript">
-         function ListenForNotifications() {
-            if ("WebSocket" in window) {
-               var ws = new WebSocket("ws://localhost:8080/notify");
-               ws.onopen = function() {
-                  console.log("onopen");
-               };
-               ws.onmessage = function (evt) { 
-                  var received_msg = evt.data;
-                  console.log(received_msg);
-               };
-               ws.onclose = function() {                   
-                  console.log("onclose"); 
-               };
-            } else {
-               console.log("WebSocket not in window");
-            }
-         }
-      </script>
-		
+        <link type="text/css" rel="stylesheet" href="/clients/hybrid.css"/>
    </head>
    
-   <body onload="ListenForNotifications()">
+    <body onload="initialize()">
+        <div id="ticker">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tag</th>
+                        <th>Team</th>
+                        <th>Team Laps</th>
+                        <th>Team Rank</th>
+                    </tr>
+                </thead>
+                <transition-group tag="tbody" name="scroll" class="list-item">
+                    <tr v-for="(notif, index) in items" :key="notif.TagID">
+                        <td>{{ notif.TagID }}</td>
+                        <td>{{ notif.TeamName }}</td>
+                        <td>{{ notif.TeamLaps }}</td>
+                        <td>{{ notif.TeamRank }}</td>
+                    </tr>
+                </transition-group>
+            </table>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/vue@2.5.17/dist/vue.js"></script>
+        <script src="/clients/hybrid.js"></script>
    </body>
 </html>

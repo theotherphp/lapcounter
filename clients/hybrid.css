@@ -1,0 +1,24 @@
+table {
+    font-family: sans-serif;
+    width: 100%;
+}
+td, th {
+    font-size: 2.5em;
+    text-align: center;
+
+    max-width: 400px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+
+.list-item {
+	transition: all 1s;
+}
+
+.scroll-enter, 
+.scroll-leave-to {
+	opacity: 0;
+	transform: translateX(20vmin);
+}
