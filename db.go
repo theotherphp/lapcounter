@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -39,7 +40,7 @@ type Team struct {
 	Laps   int
 	Leader string
 	Name   string
-	Rank   int // transient - not in DB
+	Rank   string // transient - not in DB
 	TeamID int
 }
 
@@ -63,6 +64,7 @@ type Notification struct {
 	TeamID   int
 	TeamLaps int
 	TeamName string
+	TeamRank string
 }
 
 // ConnectToDB is the way the web server connects to the DB from a goroutine
@@ -153,6 +155,7 @@ func (ds *DataStore) IncrementLaps(tagID int) (Notification, error) {
 		return notif, err
 	}
 	notif.TagID = tagID
+	notif.TeamRank = ds.getOneTeamRank(tag.TeamID)
 	return notif, nil
 }
 
@@ -189,6 +192,39 @@ func (ds *DataStore) GetLeaderboard(maxSize int) (Teams, error) {
 	return ds.getAllTeams(s)
 }
 
+// GetTeamRanks builds a map of teamIDs to string, e.g. "1st" or "23rd (T)" for ties
+func (ds *DataStore) getTeamRanks() (map[int]string, error) {
+	ranks := make(map[int]string)
+	teams, err := ds.GetLeaderboard(999)
+	if err != nil {
+		log.Println("GetLeaderboard: ", err)
+		return ranks, err
+	}
+	rank := 0
+	prevLaps := math.MaxInt64
+	tied := false
+	for _, t := range teams {
+		tied = t.Laps == prevLaps
+		if t.Laps < prevLaps {
+			rank++
+		}
+		ranks[t.TeamID] = strconv.Itoa(rank)
+		if tied {
+			ranks[t.TeamID] += " (T)"
+		}
+		prevLaps = t.Laps
+	}
+	return ranks, nil
+}
+
+func (ds *DataStore) getOneTeamRank(teamID int) string {
+	ranks, err := ds.getTeamRanks()
+	if err != nil {
+		return ""
+	}
+	return ranks[teamID]
+}
+
 func (ds *DataStore) getOneTeam(teamID int, pLaps *int, pLeader *string, pName *string, pTeamID *int) error {
 	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = %d",
 		fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamID, teamID)
@@ -209,17 +245,28 @@ func (ds *DataStore) getOneTeam(teamID int, pLaps *int, pLeader *string, pName *
 	return nil
 }
 
-//GetOneTeam is a helper function for the /teams/ handler
+//GetOneTeam is a helper function for the /team/? handler
 func (ds *DataStore) GetOneTeam(teamID int) (Team, error) {
 	var team Team
 	err := ds.getOneTeam(teamID, &team.Laps, &team.Leader, &team.Name, &team.TeamID)
 	return team, err
 }
 
-// GetTeams provides a list of teams
+// GetTeams is a helper function for the /teams/ handler
 func (ds *DataStore) GetTeams() (Teams, error) {
 	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s", fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams)
-	return ds.getAllTeams(s)
+	teams, err := ds.getAllTeams(s)
+	if err != nil {
+		return teams, err
+	}
+	ranks, err := ds.getTeamRanks()
+	if err != nil {
+		return teams, err
+	}
+	for _, t := range teams {
+		t.Rank = ranks[t.TeamID]
+	}
+	return teams, nil
 }
 
 func (ds *DataStore) insertTeams(teams Teams) error {
