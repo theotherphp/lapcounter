@@ -20,5 +20,5 @@ td, th {
 .scroll-enter, 
 .scroll-leave-to {
 	opacity: 0;
-	transform: translateX(20vmin);
+	transform: translateY(20vmin);
 }
