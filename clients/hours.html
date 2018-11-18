@@ -1,0 +1,27 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="/clients/hours.css"/>
+    </head>
+    <body onload="insertAllTeamHours()">
+        <h1>Hours On Track</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Team</th><th>Hours</th>
+                    <th>9a</th><th>10a</th><th>11a</th><th>12p</th><th>1p</th><th>2p</th><th>3p</th><th>4p</th>
+                    <th>5p</th><th>6p</th><th>7p</th><th>8p</th><th>9p</th><th>10p</th><th>11p</th><th>12a</th>
+                    <th>1a</th><th>2a</th><th>3a</th><th>4a</th><th>5a</th><th>6a</th><th>7a</th><th>8a</th>
+                </tr>
+            </thead>
+            <tbody id="hours-by-team">
+                <!-- 
+                    TRs are dynamically inserted in hours.js. I looked at doing it with a Go template, 
+                    but that seemed to require inflating the bitfields into an range-able thing
+                -->
+            </tbody>
+        </table>
+    </body>
+    <script src="/clients/hours.js"></script>
+</html>

@@ -1,0 +1,13 @@
+body {font-family:sans-serif}
+table {width:100%}
+td {
+    width: 30px;
+    max-width:30px;
+}
+.on-track {background-color: purple;}
+.team-name {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 150px;
+    overflow: hidden;
+}

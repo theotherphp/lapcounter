@@ -37,6 +37,7 @@ type DataStore struct {
 
 // Team is an in-memory representation of a row in the teams table
 type Team struct {
+	Hours  int // bitfield where each bit represents the team being on track for one of the 24 hours in the event
 	Laps   int
 	Leader string
 	Name   string
