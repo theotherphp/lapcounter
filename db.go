@@ -17,6 +17,7 @@ import (
 
 const (
 	tTeams      = "teams"
+	fTeamHours  = "team_hours"
 	fTeamLaps   = "team_laps"
 	fTeamLeader = "team_leader"
 	fTeamName   = "team_name"
@@ -37,7 +38,7 @@ type DataStore struct {
 
 // Team is an in-memory representation of a row in the teams table
 type Team struct {
-	Hours  int // bitfield where each bit represents the team being on track for one of the 24 hours in the event
+	Hours  uint // bitfield where each bit represents the team being on track for one of the 24 hours of the event
 	Laps   int
 	Leader string
 	Name   string
@@ -84,8 +85,8 @@ func ConnectToDB() (*DataStore, error) {
 	}
 
 	s := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
-        %s TEXT, %s TEXT)`,
-		tTeams, fTeamID, fTeamLaps, fTeamLeader, fTeamName)
+        %s TEXT, %s TEXT, %s INTEGER)`,
+		tTeams, fTeamID, fTeamLaps, fTeamLeader, fTeamName, fTeamHours)
 	if err := ds.conn.Exec(s); err != nil {
 		log.Fatalln("CREATE teams: ", err)
 		return nil, err
@@ -114,6 +115,16 @@ func (ds *DataStore) Close() {
 	ds.conn.Close()
 }
 
+func (ds *DataStore) incrementHours(teamID int, hours uint) error {
+	s := fmt.Sprintf("UPDATE %s SET %s = %d WHERE %s = %d",
+		tTeams, fTeamHours, hours, fTeamID, teamID)
+	if err := ds.conn.Exec(s); err != nil {
+		log.Println("err: ", err)
+		return err
+	}
+	return nil
+}
+
 func (ds *DataStore) incrementLaps(pTag *Tag) error {
 	// Check for duplicate tag reads (or attempted cheating)
 	now := time.Now()
@@ -131,7 +142,6 @@ func (ds *DataStore) incrementLaps(pTag *Tag) error {
 	}
 
 	// Increament lap count in teams table
-	// I go back and forth over shadowing this data or calculating it
 	s = fmt.Sprintf("UPDATE %s SET %s = %s + 1 WHERE %s = %d",
 		tTeams, fTeamLaps, fTeamLaps, fTeamID, pTag.TeamID)
 	if err := ds.conn.Exec(s); err != nil {
@@ -141,7 +151,7 @@ func (ds *DataStore) incrementLaps(pTag *Tag) error {
 }
 
 // IncrementLaps updates the DB and generates notifications for the browser client(s)
-func (ds *DataStore) IncrementLaps(tagID int) (Notification, error) {
+func (ds *DataStore) IncrementLaps(tagID int, hourBit uint) (Notification, error) {
 	var tag Tag
 	var notif Notification
 
@@ -152,14 +162,24 @@ func (ds *DataStore) IncrementLaps(tagID int) (Notification, error) {
 		return notif, err
 	}
 	var leader string // unused
-	if err := ds.getOneTeam(tag.TeamID, &notif.TeamLaps, &leader, &notif.TeamName, &notif.TeamID); err != nil {
+	var hours uint
+	if err := ds.getOneTeam(tag.TeamID, &hours, &notif.TeamLaps, &leader, &notif.TeamName, &notif.TeamID); err != nil {
 		return notif, err
 	}
+
+	if hours&hourBit == 0 {
+		err := ds.incrementHours(tag.TeamID, hours|hourBit)
+		if err != nil {
+			return notif, err
+		}
+	}
+
 	notif.TagID = tagID
 	notif.TeamRank = ds.getOneTeamRank(tag.TeamID)
 	return notif, nil
 }
 
+// getAllTeams is a helper function shared between several API functions
 func (ds *DataStore) getAllTeams(s string) (Teams, error) {
 	var teams Teams
 	stmt, err := ds.conn.Prepare(s)
@@ -177,10 +197,12 @@ func (ds *DataStore) getAllTeams(s string) (Teams, error) {
 		}
 
 		var t Team
-		err = stmt.Scan(&t.TeamID, &t.Laps, &t.Leader, &t.Name)
+		var hours int
+		err = stmt.Scan(&t.TeamID, &hours, &t.Laps, &t.Leader, &t.Name)
 		if err != nil {
 			return teams, err
 		}
+		t.Hours = uint(hours) // uint is unscannable to SQLite
 		teams = append(teams, &t)
 	}
 	return teams, err
@@ -188,8 +210,8 @@ func (ds *DataStore) getAllTeams(s string) (Teams, error) {
 
 // GetLeaderboard provides the list of N teams ordered by lap count
 func (ds *DataStore) GetLeaderboard(maxSize int) (Teams, error) {
-	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s ORDER BY %s DESC LIMIT %d",
-		fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamLaps, maxSize)
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s, %s FROM %s ORDER BY %s DESC LIMIT %d",
+		fTeamID, fTeamHours, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamLaps, maxSize)
 	return ds.getAllTeams(s)
 }
 
@@ -226,9 +248,9 @@ func (ds *DataStore) getOneTeamRank(teamID int) string {
 	return ranks[teamID]
 }
 
-func (ds *DataStore) getOneTeam(teamID int, pLaps *int, pLeader *string, pName *string, pTeamID *int) error {
-	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = %d",
-		fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamID, teamID)
+func (ds *DataStore) getOneTeam(teamID int, pHours *uint, pLaps *int, pLeader *string, pName *string, pTeamID *int) error {
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s, %s FROM %s WHERE %s = %d",
+		fTeamID, fTeamHours, fTeamLaps, fTeamLeader, fTeamName, tTeams, fTeamID, teamID)
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
 		return err
@@ -239,9 +261,11 @@ func (ds *DataStore) getOneTeam(teamID int, pLaps *int, pLeader *string, pName *
 		return err
 	}
 	if hasRow {
-		if err := stmt.Scan(pTeamID, pLaps, pLeader, pName); err != nil {
+		var hours int
+		if err := stmt.Scan(pTeamID, &hours, pLaps, pLeader, pName); err != nil {
 			return err
 		}
+		*pHours = uint(hours) // uint is unscannable to SQLite
 	}
 	return nil
 }
@@ -249,13 +273,13 @@ func (ds *DataStore) getOneTeam(teamID int, pLaps *int, pLeader *string, pName *
 //GetOneTeam is a helper function for the /team/? handler
 func (ds *DataStore) GetOneTeam(teamID int) (Team, error) {
 	var team Team
-	err := ds.getOneTeam(teamID, &team.Laps, &team.Leader, &team.Name, &team.TeamID)
+	err := ds.getOneTeam(teamID, &team.Hours, &team.Laps, &team.Leader, &team.Name, &team.TeamID)
 	return team, err
 }
 
 // GetTeams is a helper function for the /teams/ handler
 func (ds *DataStore) GetTeams() (Teams, error) {
-	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s", fTeamID, fTeamLaps, fTeamLeader, fTeamName, tTeams)
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s, %s FROM %s", fTeamID, fTeamHours, fTeamLaps, fTeamLeader, fTeamName, tTeams)
 	teams, err := ds.getAllTeams(s)
 	if err != nil {
 		return teams, err
@@ -271,8 +295,8 @@ func (ds *DataStore) GetTeams() (Teams, error) {
 }
 
 func (ds *DataStore) insertTeams(teams Teams) error {
-	s := fmt.Sprintf("INSERT INTO %s(%s, %s, %s, %s) VALUES(?, ?, ?, ?)",
-		tTeams, fTeamLaps, fTeamLeader, fTeamName, fTeamID)
+	s := fmt.Sprintf("INSERT INTO %s(%s, %s, %s, %s, %s) VALUES(?, ?, ?, ?, ?)",
+		tTeams, fTeamLaps, fTeamLeader, fTeamName, fTeamID, fTeamHours)
 	stmt, err := ds.conn.Prepare(s)
 	if err != nil {
 		return err
@@ -280,7 +304,9 @@ func (ds *DataStore) insertTeams(teams Teams) error {
 	defer stmt.Close()
 
 	for _, t := range teams {
-		if err = stmt.Exec(0, t.Leader, t.Name, t.TeamID); err != nil {
+		laps := 0
+		hours := 0
+		if err = stmt.Exec(laps, t.Leader, t.Name, t.TeamID, hours); err != nil {
 			return err
 		}
 	}

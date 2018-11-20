@@ -39,6 +39,10 @@ type webServer struct {
 	quitNotify chan bool
 	register   chan *notifyClient
 	unregister chan *notifyClient
+
+	// Hourly time updates to support clients/hours.html
+	updateHour     chan uint
+	quitUpdateHour chan bool
 }
 
 func (svr *webServer) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -132,12 +136,12 @@ func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleTeamsX gives an AJAX interface (rather than document/template) to GetTeams
+// handleHours gives an AJAX interface (rather than document/template) to GetTeams
 // It's used by the hours.html client
-func (svr *webServer) handleTeamsX(w http.ResponseWriter, r *http.Request) {
+func (svr *webServer) handleHours(w http.ResponseWriter, r *http.Request) {
 	ds, err := ConnectToDB()
 	if err != nil {
-		reportError(w, err, "/teamsx ConnectToDB: ")
+		reportError(w, err, "/hours ConnectToDB: ")
 		return
 	}
 	defer ds.Close()
@@ -145,16 +149,9 @@ func (svr *webServer) handleTeamsX(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		teams, err := ds.GetTeams()
 		if err != nil {
-			reportError(w, err, "/teamsx GetTeams: ")
+			reportError(w, err, "/hours GetTeams: ")
 			return
 		}
-		for t := range teams {
-			teams[t].Hours = 1
-		}
-		teams[0].Hours = 16777215
-		teams[1].Hours = 63
-		teams[2].Hours = 4980863
-		teams[3].Hours = 253952
 		teamsJSON, err := json.Marshal(teams)
 		if err != nil {
 			reportError(w, err, "json.Marshal: ")
@@ -162,7 +159,7 @@ func (svr *webServer) handleTeamsX(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Write(teamsJSON)
 	} else if r.Method == "POST" {
-		reportError(w, err, "/teamsx POST unimplemented")
+		reportError(w, err, "/hours POST unimplemented")
 	}
 }
 
@@ -204,15 +201,20 @@ func (svr *webServer) serviceTagChannel() {
 	}
 	defer ds.Close()
 
+	var hourBit uint
 	for {
 		select {
 		case tagKey := <-svr.tags: // Consume the tag channel
-			if notif, err := ds.IncrementLaps(tagKey); err == nil {
+			if notif, err := ds.IncrementLaps(tagKey, hourBit); err == nil {
 				svr.notify <- notif // Publish notification to the clients
+			} else {
+				log.Println("IncrementLaps: ", err)
 			}
 		case <-svr.quitTags:
 			log.Println("serviceTagChannel exiting")
 			return
+		case hourBit = <-svr.updateHour:
+			log.Println("hourBit: ", hourBit)
 		}
 	}
 }
@@ -268,14 +270,16 @@ func (svr *webServer) serviceNotifyChannel() {
 }
 
 // StartWebServer starts and stops the app and its goroutines
-func StartWebServer() {
+func StartWebServer(hour int) {
 	svr := &webServer{
-		tags:       make(chan int, 10),
-		quitTags:   make(chan bool),
-		notify:     make(chan Notification, 10),
-		quitNotify: make(chan bool),
-		register:   make(chan *notifyClient),
-		unregister: make(chan *notifyClient),
+		tags:           make(chan int, 10),
+		quitTags:       make(chan bool),
+		notify:         make(chan Notification, 10),
+		quitNotify:     make(chan bool),
+		register:       make(chan *notifyClient),
+		unregister:     make(chan *notifyClient),
+		updateHour:     make(chan uint),
+		quitUpdateHour: make(chan bool),
 	}
 
 	var httpsvr http.Server
@@ -293,7 +297,7 @@ func StartWebServer() {
 	http.HandleFunc("/", svr.handleRoot)
 	http.HandleFunc("/team/", svr.handleTeam)
 	http.HandleFunc("/teams", svr.handleTeams)
-	http.HandleFunc("/teamsx", svr.handleTeamsX)
+	http.HandleFunc("/hours", svr.handleHours)
 	http.HandleFunc("/laps", svr.handleLaps)
 	http.HandleFunc("/notify", svr.handleNotify)
 	http.Handle("/templates/", http.StripPrefix("/templates/", http.FileServer(http.Dir("./templates"))))
@@ -301,12 +305,13 @@ func StartWebServer() {
 
 	go svr.serviceTagChannel()
 	go svr.serviceNotifyChannel()
-
+	go HourTicker(hour, "", svr.updateHour, svr.quitUpdateHour)
 	if err := httpsvr.ListenAndServe(); err != http.ErrServerClosed {
 		log.Println("http.ListenAndServe: ", err)
 	}
 	svr.quitTags <- true
 	svr.quitNotify <- true
+	svr.quitUpdateHour <- true
 
 	// Wait for goroutines to quit so we close the DB cleanly
 	// I thought unbuffered channels were synchronous so this seems odd

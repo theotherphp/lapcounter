@@ -31,6 +31,6 @@ function insertAllTeamHours() {
             }
         }
     };
-    req.open("GET", "/teamsx", true);
+    req.open("GET", "/hours", true);
     req.send();
 }
