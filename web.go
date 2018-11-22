@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -75,8 +76,9 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		if teamKey, err := strconv.Atoi(r.URL.Path[len("/team/"):]); err == nil {
 			type TeamParam struct {
-				Name string
-				Tags []*Tag
+				Name   string
+				Tags   []*Tag
+				TeamID int
 			}
 
 			tags, err := ds.GetTagsForTeam(teamKey)
@@ -91,12 +93,41 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 			}
 			svr.runTemplate(w, "./templates/team.html",
 				TeamParam{
-					Name: team.Name,
-					Tags: tags,
+					Name:   team.Name,
+					Tags:   tags,
+					TeamID: team.TeamID,
 				})
 		}
-	} else if r.Method == "POST" {
-		log.Println("/team/ POST unimplemented")
+	} else if r.Method == "POST" { // Add tags to this team
+		r.ParseForm()
+		var err error
+		var teamID, first, last int
+		if teamID, err = strconv.Atoi(r.FormValue("team_id")); err != nil {
+			reportError(w, err, "atoi team_id")
+			return
+		}
+		firstLast := strings.Split(r.FormValue("tag_ids"), "-")
+		if first, err = strconv.Atoi(firstLast[0]); err != nil {
+			reportError(w, err, "atoi firstLast[0]")
+			return
+		}
+		if len(firstLast) > 1 {
+			if last, err = strconv.Atoi(firstLast[1]); err != nil {
+				reportError(w, err, "Atoi firstLast[1]")
+				return
+			}
+		} else {
+			last = first
+		}
+		var tags Tags
+		for tagID := first; tagID <= last; tagID++ {
+			tags = append(tags, &Tag{TagID: tagID, TeamID: teamID})
+		}
+		if err = ds.insertTags(tags); err != nil {
+			reportError(w, err, "insertTags: ")
+			return
+		}
+		http.Redirect(w, r, "/team/"+strconv.Itoa(teamID), http.StatusFound)
 	}
 }
 
