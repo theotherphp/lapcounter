@@ -6,13 +6,13 @@ function initialize() {
         }
     })
     if ("WebSocket" in window) {
-        var ws = new WebSocket("ws://localhost:8080/notify");
+        var ws = new WebSocket("ws://mini.local:8080/notify");
         ws.onopen = function() {
             console.log("onopen");
         };
         ws.onmessage = function (evt) { 
             var notif = JSON.parse(evt.data);
-            if (app.notifications.length > 9) {
+            if (app.notifications.length > 12) {
                 app.notifications.pop();
             }
             app.notifications.unshift(notif);
