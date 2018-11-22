@@ -11,7 +11,7 @@ func HourTicker(hour int, startHrsMins string, update chan uint, quit chan bool)
 	// Calculate the Time at which we should start the hourly ticker
 	now := time.Now()
 	elems := strings.Split(now.Format(time.RFC822), " ") // e.g. "18 Nov 18 09:05 PST"
-	if len(startHrsMins) > 0 {
+	if len(startHrsMins) > 0 {                           // Empty string means start now
 		elems[3] = startHrsMins
 	}
 	then, err := time.Parse(time.RFC822, strings.Join(elems, " "))
@@ -22,7 +22,7 @@ func HourTicker(hour int, startHrsMins string, update chan uint, quit chan bool)
 	tilStart := then.Sub(now)
 
 	time.AfterFunc(tilStart, func() {
-		tick := time.NewTicker(time.Minute * 1).C
+		tick := time.NewTicker(time.Hour).C
 		hourBit := uint(1) << uint(hour)
 		update <- hourBit
 		for {

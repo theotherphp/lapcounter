@@ -28,7 +28,7 @@ const (
 	fTagLaps        = "tag_laps"
 	fTagLastUpdated = "tag_last_updated"
 
-	minLapSecs = 2.0
+	minLapSecs = 60.0
 )
 
 // DataStore is the abstraction around a SQLite3 DB
@@ -224,7 +224,7 @@ func (ds *DataStore) getTeamRanks() (map[int]string, error) {
 		return ranks, err
 	}
 	rank := 0
-	prevLaps := math.MaxInt64
+	prevLaps := math.MaxInt32
 	tied := false
 	for _, t := range teams {
 		tied = t.Laps == prevLaps
@@ -270,7 +270,7 @@ func (ds *DataStore) getOneTeam(teamID int, pHours *uint, pLaps *int, pLeader *s
 	return nil
 }
 
-//GetOneTeam is a helper function for the /team/? handler
+// GetOneTeam is a helper function for the /team/? handler
 func (ds *DataStore) GetOneTeam(teamID int) (Team, error) {
 	var team Team
 	err := ds.getOneTeam(teamID, &team.Hours, &team.Laps, &team.Leader, &team.Name, &team.TeamID)
