@@ -2,7 +2,7 @@ body {
     background-color: lightgray;
 }
 table {
-    font-family: sans-serif;
+    font-family: 'Roboto', sans-serif;
     width: 100%;
 }
 td, th {
