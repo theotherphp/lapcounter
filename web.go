@@ -239,13 +239,15 @@ func (svr *webServer) serviceTagChannel() {
 			if notif, err := ds.IncrementLaps(tagKey, hourBit); err == nil {
 				svr.notify <- notif // Publish notification to the clients
 			} else {
-				log.Println("IncrementLaps: ", err)
+				if err != ErrDuplicateRead {
+					log.Println("IncrementLaps: ", err)
+				}
 			}
 		case <-svr.quitTags:
 			log.Println("serviceTagChannel exiting")
 			return
 		case hourBit = <-svr.updateHour:
-			log.Println("hourBit: ", hourBit)
+			log.Printf("hourBit: %32b\n", hourBit)
 		}
 	}
 }
@@ -269,7 +271,7 @@ func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
 		case notif := <-client.send:
 			// send the notification to the browser client
 			if err := conn.WriteJSON(notif); err != nil {
-				log.Println("handleNotify write failed, returning")
+				log.Println("handleNotify exiting (client disconnected)")
 				svr.unregister <- client
 				return
 			}

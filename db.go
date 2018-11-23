@@ -69,6 +69,9 @@ type Notification struct {
 	TeamRank string
 }
 
+// ErrDuplicateRead is a soft error generated when a tag is received multiple times within minLapSecs
+var ErrDuplicateRead = errors.New("Duplicate read")
+
 // ConnectToDB is the way the web server connects to the DB from a goroutine
 func ConnectToDB() (*DataStore, error) {
 	conn, err := sqlite3.Open("relay.db")
@@ -130,7 +133,7 @@ func (ds *DataStore) incrementLaps(pTag *Tag) error {
 	now := time.Now()
 	if then, err := time.Parse(time.RFC1123, pTag.LastUpdated); err == nil {
 		if now.Sub(then).Seconds() < minLapSecs {
-			return errors.New("Duplicate read")
+			return ErrDuplicateRead
 		}
 	}
 
