@@ -6,7 +6,7 @@ function initialize() {
         }
     })
     if ("WebSocket" in window) {
-        var ws = new WebSocket("ws://mini.local:8080/notify");
+        var ws = new WebSocket("ws://localhost:8080/notify");
         ws.onopen = function() {
             console.log("onopen");
         };
