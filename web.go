@@ -247,7 +247,7 @@ func (svr *webServer) serviceTagChannel() {
 			log.Println("serviceTagChannel exiting")
 			return
 		case hourBit = <-svr.updateHour:
-			log.Printf("hourBit: %32b\n", hourBit)
+			log.Println("hourBit: " + strconv.FormatUint(uint64(hourBit), 2))
 		}
 	}
 }
