@@ -14,7 +14,7 @@
             <tr>
                 <td>{{.TagID}}</td>
                 <td>{{.Laps}}</td>
-                <td>{{.LastUpdated}}</td>
+                <td>{{.LastUpdated | friendlyDate}}</td>
             </tr>
         {{end}}
     </table>

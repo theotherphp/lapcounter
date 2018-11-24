@@ -52,7 +52,7 @@ type Teams []*Team
 // Tag is an in-memory representation of a row in the tags table
 type Tag struct {
 	Laps        int
-	LastUpdated string
+	LastUpdated int64
 	TagID       int
 	TeamID      int
 }
@@ -131,15 +131,14 @@ func (ds *DataStore) incrementHours(teamID int, hours uint) error {
 func (ds *DataStore) incrementLaps(pTag *Tag) error {
 	// Check for duplicate tag reads (or attempted cheating)
 	now := time.Now()
-	if then, err := time.Parse(time.RFC1123, pTag.LastUpdated); err == nil {
-		if now.Sub(then).Seconds() < minLapSecs {
-			return ErrDuplicateRead
-		}
+	then := time.Unix(0, pTag.LastUpdated)
+	if now.Sub(then).Seconds() < minLapSecs {
+		return ErrDuplicateRead
 	}
 
 	// Increment lap count and last updated in the tags table
-	s := fmt.Sprintf("UPDATE %s SET %s = %s + 1, %s = \"%s\" WHERE %s = %d",
-		tTags, fTagLaps, fTagLaps, fTagLastUpdated, now.Format(time.RFC1123), fTagID, pTag.TagID)
+	s := fmt.Sprintf("UPDATE %s SET %s = %s + 1, %s = %d WHERE %s = %d",
+		tTags, fTagLaps, fTagLaps, fTagLastUpdated, now.UnixNano(), fTagID, pTag.TagID)
 	if err := ds.conn.Exec(s); err != nil {
 		return err
 	}
@@ -340,7 +339,7 @@ func (ds *DataStore) insertTags(tags Tags) error {
 	}
 	defer stmt.Close()
 	for _, tag := range tags {
-		if err := stmt.Exec(tag.TagID, tag.TeamID, "", 0); err != nil {
+		if err := stmt.Exec(tag.TagID, tag.TeamID, 0, 0); err != nil {
 			return err
 		}
 	}
@@ -355,7 +354,7 @@ func (ds *DataStore) InsertTags(tags Tags) error {
 	return err
 }
 
-func (ds *DataStore) getOneTag(tagID int, pLaps *int, pLastUpdated *string, pTagID *int, pTeamID *int) error {
+func (ds *DataStore) getOneTag(tagID int, pLaps *int, pLastUpdated *int64, pTagID *int, pTeamID *int) error {
 	s := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = %d",
 		fTagID, fTagLaps, fTagLastUpdated, fTeamID, tTags, fTagID, tagID)
 	stmt, err := ds.conn.Prepare(s)

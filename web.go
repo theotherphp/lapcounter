@@ -47,16 +47,28 @@ type webServer struct {
 }
 
 func (svr *webServer) handleRoot(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/teams/", http.StatusSeeOther)
+	http.Redirect(w, r, "/teams", http.StatusSeeOther)
 }
 
-func (svr *webServer) runTemplate(w http.ResponseWriter, name string, param interface{}) {
-	if tmpl, err := template.ParseFiles(name); err == nil {
-		if err = tmpl.Execute(w, param); err != nil {
-			log.Println("template.Execute ", name, err)
-		}
-	} else {
-		log.Println("template.Parsefiles ", name, err)
+func friendlyDate(nanos int64) string {
+	if nanos == 0 {
+		return ""
+	}
+	return time.Unix(0, nanos).Format("Mon 15:04:05") // Be careful - time format by example is squirrely
+}
+
+func (svr *webServer) runTemplate(w http.ResponseWriter, path string, param interface{}) {
+	funcs := template.FuncMap{"friendlyDate": friendlyDate}
+	name := strings.Split(path, "/")[2]
+	tmpl, err := template.New(name).Funcs(funcs).ParseFiles(path)
+	if err != nil {
+		log.Println("template.Parsefiles ", path, err)
+		return
+	}
+	err = tmpl.Execute(w, param)
+	if err != nil {
+		log.Println("template.Execute ", path, err)
+		return
 	}
 }
 
