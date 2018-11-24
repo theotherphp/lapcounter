@@ -82,6 +82,13 @@ func ConnectToDB() (*DataStore, error) {
 	ds := new(DataStore)
 	ds.conn = conn
 
+	dur, err := time.ParseDuration("300ms")
+	if err != nil {
+		log.Fatalln("Parse timeout dur: ", err)
+		return nil, err
+	}
+	conn.BusyTimeout(dur)
+
 	if err := ds.conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
 		log.Fatalln("Pragma: ", err)
 		return nil, err
