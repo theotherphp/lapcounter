@@ -10,10 +10,11 @@
     </h3>
     <table>
         <tr>
-            <th>Name</th>
+            <!-- SQLite column names in URLs below -->
+            <th><a href="teams?sort=team_id&order=ASC">Name</a></th>
             <th>Leader</th>
-            <th>Laps</th>
-            <th>Rank</th>
+            <th><a href="teams?sort=team_laps&order=DESC">Laps</a></th>
+            <th>Rank</a></th>
         </tr>
         {{range $index, $element := .Teams}}
             <tr>

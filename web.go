@@ -146,7 +146,8 @@ func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 			Miles float64
 		}
 
-		teams, err := ds.GetTeams()
+		q := r.URL.Query()
+		teams, err := ds.GetTeams(q.Get("sort"), q.Get("order"))
 		if err != nil {
 			reportError(w, err, "GetTeams: ")
 			return
@@ -178,7 +179,7 @@ func (svr *webServer) handleHours(w http.ResponseWriter, r *http.Request) {
 	defer ds.Close()
 
 	if r.Method == "GET" {
-		teams, err := ds.GetTeams()
+		teams, err := ds.GetTeams("", "")
 		if err != nil {
 			reportError(w, err, "/hours GetTeams: ")
 			return

@@ -226,16 +226,15 @@ func (ds *DataStore) getTeamRanks() (map[int]string, error) {
 		log.Println("GetLeaderboard: ", err)
 		return ranks, err
 	}
-	rank := 0
+	rank, nextRank := 0, 0
 	prevLaps := math.MaxInt32
-	tied := false
 	for _, t := range teams {
-		tied = t.Laps == prevLaps
+		nextRank++
 		if t.Laps < prevLaps {
-			rank++
+			rank = nextRank
 		}
 		ranks[t.TeamID] = strconv.Itoa(rank)
-		if tied {
+		if t.Laps == prevLaps {
 			ranks[t.TeamID] += " (T)"
 		}
 		prevLaps = t.Laps
@@ -281,8 +280,15 @@ func (ds *DataStore) GetOneTeam(teamID int) (Team, error) {
 }
 
 // GetTeams is a helper function for the /teams/ handler
-func (ds *DataStore) GetTeams() (Teams, error) {
-	s := fmt.Sprintf("SELECT %s, %s, %s, %s, %s FROM %s", fTeamID, fTeamHours, fTeamLaps, fTeamLeader, fTeamName, tTeams)
+func (ds *DataStore) GetTeams(key string, order string) (Teams, error) {
+	if key == "" { // Convenience so I don't have to type sort/order in the URL
+		key = "team_id"
+	}
+	if order == "" {
+		order = "ASC"
+	}
+	s := fmt.Sprintf("SELECT %s, %s, %s, %s, %s FROM %s ORDER BY %s %s",
+		fTeamID, fTeamHours, fTeamLaps, fTeamLeader, fTeamName, tTeams, key, order)
 	teams, err := ds.getAllTeams(s)
 	if err != nil {
 		return teams, err
