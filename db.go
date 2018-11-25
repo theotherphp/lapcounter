@@ -82,16 +82,9 @@ func ConnectToDB() (*DataStore, error) {
 	}
 	ds := new(DataStore)
 	ds.conn = conn
+	conn.BusyTimeout(100 * time.Millisecond)
 
 	if !initialized {
-		// Enable busy timeout to minimize locking
-		dur, err := time.ParseDuration("300ms")
-		if err != nil {
-			log.Fatalln("Parse timeout dur: ", err)
-			return nil, err
-		}
-		conn.BusyTimeout(dur)
-
 		// TODO: why does .dump say foreign_keys = off
 		if err := ds.conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
 			log.Fatalln("Pragma: ", err)
