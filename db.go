@@ -71,6 +71,7 @@ type Notification struct {
 
 // ErrDuplicateRead is a soft error generated when a tag is received multiple times within minLapSecs
 var ErrDuplicateRead = errors.New("Duplicate read")
+var initialized = false
 
 // ConnectToDB is the way the web server connects to the DB from a goroutine
 func ConnectToDB() (*DataStore, error) {
@@ -82,41 +83,46 @@ func ConnectToDB() (*DataStore, error) {
 	ds := new(DataStore)
 	ds.conn = conn
 
-	dur, err := time.ParseDuration("300ms")
-	if err != nil {
-		log.Fatalln("Parse timeout dur: ", err)
-		return nil, err
-	}
-	conn.BusyTimeout(dur)
+	if !initialized {
+		// Enable busy timeout to minimize locking
+		dur, err := time.ParseDuration("300ms")
+		if err != nil {
+			log.Fatalln("Parse timeout dur: ", err)
+			return nil, err
+		}
+		conn.BusyTimeout(dur)
 
-	if err := ds.conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		log.Fatalln("Pragma: ", err)
-		return nil, err
-	}
+		// TODO: why does .dump say foreign_keys = off
+		if err := ds.conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
+			log.Fatalln("Pragma: ", err)
+			return nil, err
+		}
 
-	s := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
-        %s TEXT, %s TEXT, %s INTEGER)`,
-		tTeams, fTeamID, fTeamLaps, fTeamLeader, fTeamName, fTeamHours)
-	if err := ds.conn.Exec(s); err != nil {
-		log.Fatalln("CREATE teams: ", err)
-		return nil, err
-	}
+		s := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
+			%s TEXT, %s TEXT, %s INTEGER)`,
+			tTeams, fTeamID, fTeamLaps, fTeamLeader, fTeamName, fTeamHours)
+		if err := ds.conn.Exec(s); err != nil {
+			log.Fatalln("CREATE teams: ", err)
+			return nil, err
+		}
 
-	s = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
-        %s TEXT, %s INTEGER, FOREIGN KEY(%s) REFERENCES %s(%s))`,
-		tTags, fTagID, fTagLaps, fTagLastUpdated, fTeamID, fTeamID, tTeams, fTeamID)
-	if err := ds.conn.Exec(s); err != nil {
-		log.Fatalln("CREATE tags: ", err)
-		return nil, err
-	}
+		s = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(%s INTEGER NOT NULL PRIMARY KEY, %s INTEGER,
+			%s TEXT, %s INTEGER, FOREIGN KEY(%s) REFERENCES %s(%s))`,
+			tTags, fTagID, fTagLaps, fTagLastUpdated, fTeamID, fTeamID, tTeams, fTeamID)
+		if err := ds.conn.Exec(s); err != nil {
+			log.Fatalln("CREATE tags: ", err)
+			return nil, err
+		}
 
-	// Allow indexed query for tags with a given team_id
-	s = fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_team_id ON %s(%s)", tTags, fTeamID)
-	if err := ds.conn.Exec(s); err != nil {
-		log.Fatalln("CREATE idx_team_id: ", err)
-		return nil, err
+		// Allow indexed query for tags with a given team_id
+		s = fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_team_id ON %s(%s)", tTags, fTeamID)
+		if err := ds.conn.Exec(s); err != nil {
+			log.Fatalln("CREATE idx_team_id: ", err)
+			return nil, err
+		}
+		initialized = true
+		log.Println("initialized DB")
 	}
-
 	return ds, nil
 }
 
