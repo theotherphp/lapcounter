@@ -82,7 +82,11 @@ func ConnectToDB() (*DataStore, error) {
 	}
 	ds := new(DataStore)
 	ds.conn = conn
-	conn.BusyTimeout(100 * time.Millisecond)
+	ds.conn.BusyFunc(func(count int) (retry bool) {
+		log.Println("BusyFunc retry #", count)
+		time.Sleep(100 * time.Millisecond)
+		return count < 10
+	})
 
 	if !initialized {
 		// TODO: why does .dump say foreign_keys = off
