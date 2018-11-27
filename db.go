@@ -82,11 +82,9 @@ func ConnectToDB() (*DataStore, error) {
 	}
 	ds := new(DataStore)
 	ds.conn = conn
-	ds.conn.BusyFunc(func(count int) (retry bool) {
-		log.Println("BusyFunc retry #", count)
-		time.Sleep(100 * time.Millisecond)
-		return count < 10
-	})
+	// Wait at most one second, potentially across multiple attempts
+	// https://www.sqlite.org/c3ref/busy_timeout.html
+	ds.conn.BusyTimeout(time.Second)
 
 	if !initialized {
 		// TODO: why does .dump say foreign_keys = off

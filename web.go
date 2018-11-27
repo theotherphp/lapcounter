@@ -159,24 +159,11 @@ func (svr *webServer) handleTeams(w http.ResponseWriter, r *http.Request) {
 		}
 
 		q := r.URL.Query()
-		var teams Teams
-		for i := 0; i < 5; i++ {
-			teams, err = ds.GetTeams(q.Get("sort"), q.Get("order"))
-			if err == nil {
-				break
-			} else if strings.Contains(err.Error(), "database is locked") {
-				log.Println("GetTeams reported locked, retry #", i)
-				dur, err := time.ParseDuration("100ms")
-				if err == nil {
-					time.Sleep(dur)
-				}
-				continue
-			} else {
-				reportError(w, err, "GetTeams: ")
-				return
-			}
+		teams, err := ds.GetTeams(q.Get("sort"), q.Get("order"))
+		if err != nil {
+			reportError(w, err, "GetTeams: ")
+			return
 		}
-
 		const lapsToMiles = 400 * 3.28084 / 5280
 		laps := 0
 		for _, t := range teams {
