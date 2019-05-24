@@ -236,7 +236,7 @@ func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 }
 
 // serviceTagChannel consumes the tag channel, allowing DB updates to be async with incoming tag reads
-func (svr *webServer) serviceTagChannel() {
+func (svr *webServer) serviceTagChannel(hour uint) {
 	log.Println("serviceTagChannel starting")
 	ds, err := ConnectToDB()
 	if err != nil {
@@ -245,22 +245,25 @@ func (svr *webServer) serviceTagChannel() {
 	}
 	defer ds.Close()
 
-	var hourBit uint
+	started := false
 	for {
 		select {
-		case tagKey := <-svr.tags: // Consume the tag channel
-			if notif, err := ds.IncrementLaps(tagKey, hourBit); err == nil {
-				svr.notify <- notif // Publish notification to the clients
-			} else {
-				if err != ErrDuplicateRead {
-					log.Println("IncrementLaps: ", err)
+		case tagID := <-svr.tags: // Consume the tag channel
+			if started {
+				if notif, err := ds.IncrementLaps(tagID, hour); err == nil {
+					svr.notify <- notif // Publish notification to the clients
+				} else {
+					log.Println("IncrementLaps: ", tagID, err)
 				}
+			} else {
+				log.Println("Ignoring pre-event read: ", tagID)
 			}
 		case <-svr.quitTags:
 			log.Println("serviceTagChannel exiting")
 			return
-		case hourBit = <-svr.updateHour:
-			log.Println("hourBit: " + strconv.FormatUint(uint64(hourBit), 2))
+		case hour := <-svr.updateHour: // Supports handleHours()
+			started = true
+			log.Println("Starting hour: ", hour)
 		}
 	}
 }
@@ -292,8 +295,7 @@ func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// serviceNotifyChannel is a waystation for notifications between the DB and the /notify handlers
-// it also provides a concurrency-safe map to fan out notifications to many clients
+// serviceNotifyChannel provides a concurrency-safe map to fan out notifications to many clients
 func (svr *webServer) serviceNotifyChannel() {
 	log.Println("serviceNotifyChannel starting")
 	clients := make(map[*notifyClient]bool)
@@ -316,7 +318,7 @@ func (svr *webServer) serviceNotifyChannel() {
 }
 
 // StartWebServer starts and stops the app and its goroutines
-func StartWebServer(hour int) {
+func StartWebServer(hour uint, tilStart time.Duration) {
 	svr := &webServer{
 		tags:           make(chan int, 10),
 		quitTags:       make(chan bool),
@@ -349,9 +351,9 @@ func StartWebServer(hour int) {
 	http.Handle("/templates/", http.StripPrefix("/templates/", http.FileServer(http.Dir("./templates"))))
 	http.Handle("/clients/", http.StripPrefix("/clients/", http.FileServer(http.Dir("./clients"))))
 
-	go svr.serviceTagChannel()
+	go svr.serviceTagChannel(hour)
 	go svr.serviceNotifyChannel()
-	go HourTicker(hour, "", svr.updateHour, svr.quitUpdateHour)
+	go HourTicker(hour, tilStart, svr.updateHour, svr.quitUpdateHour)
 	if err := httpsvr.ListenAndServe(); err != http.ErrServerClosed {
 		log.Println("http.ListenAndServe: ", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"time"
 )
 
 func main() {
@@ -14,27 +15,29 @@ func main() {
 	}
 	defer logFile.Close()
 	log.SetOutput(logFile)
-	log.Println("")
-	log.Println("relay starting")
+	log.Printf("\nrelay starting\n")
 
 	// Parse command-line flags
 	importFilePtr := flag.String("import", "", "CSV file to import")
-	hour := flag.Int("hour", 0, "What hour of the event is it? 1 for 9-10am, etc.")
+	hour := flag.Uint("hour", 0, "What hour of the event is it? 0 for 9-10am, etc.") // Use in case of restart mid-event
+	start := flag.String("start", "0s", "Wait until start, e.g. \"2h25m\"")          // Use to set up gear before official start time
 	flag.Parse()
 	if *importFilePtr != "" {
 		ds, err := ConnectToDB()
 		if err != nil {
-			log.Println("main ConnectToDB: ", err)
-			return
+			log.Fatalln("main ConnectToDB: ", err)
 		}
 		if err := ds.Import(*importFilePtr); err != nil {
-			log.Println("Import: ", err)
-			return
+			log.Fatalln("Import: ", err)
 		}
 		ds.Close()
 	}
 
-	// Ready to go
-	StartWebServer(*hour)
+	tilStart, err := time.ParseDuration(*start)
+	if err != nil {
+		log.Fatalln("Bad duration: ", *start)
+	}
+
+	StartWebServer(*hour, tilStart)
 	log.Println("relay exiting")
 }

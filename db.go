@@ -161,7 +161,7 @@ func (ds *DataStore) incrementLaps(pTag *Tag) error {
 }
 
 // IncrementLaps updates the DB and generates notifications for the browser client(s)
-func (ds *DataStore) IncrementLaps(tagID int, hourBit uint) (Notification, error) {
+func (ds *DataStore) IncrementLaps(tagID int, hour uint) (Notification, error) {
 	var tag Tag
 	var notif Notification
 
@@ -177,6 +177,7 @@ func (ds *DataStore) IncrementLaps(tagID int, hourBit uint) (Notification, error
 		return notif, err
 	}
 
+	hourBit := uint(1) << hour
 	if hours&hourBit == 0 {
 		err := ds.incrementHours(tag.TeamID, hours|hourBit)
 		if err != nil {
