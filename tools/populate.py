@@ -17,7 +17,17 @@ tags = [176,177,178,179,285, 286, 287, 288, 111, 112, 113, 114, 115, 116, 117, 1
 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 250, 251,252, 253, 
 254, 255, 256, 257, 258, 259, 158, 159, 160, 161, 162, 163, 164, 165]
 
-ws = websocket.create_connection('ws://tv.local:8080/laps')
+def create_ws():
+    return websocket.create_connection('ws://mini.local:8080/laps')
+
+ws = create_ws()
 for i in range(1000):
     time.sleep(3)
-    _ = ws.send(str(random.choice(tags)).zfill(4))
+    try:
+        _ = ws.send(str(random.choice(tags)).zfill(4))
+    except:
+        try:
+            ws = create_ws()
+        except:
+            print 'retrying in 3s'
+            time.sleep(3)
