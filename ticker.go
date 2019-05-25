@@ -17,7 +17,7 @@ func HourTicker(hour uint, tilStart time.Duration, update chan uint, quit chan b
 				hour++
 				update <- hour
 			case <-quit:
-				log.Println("HourTicker exiting")
+				log.Println("stop counting hours")
 				return
 			}
 		}

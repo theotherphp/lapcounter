@@ -211,7 +211,7 @@ var upgrader = websocket.Upgrader{}
 
 // handleLaps is the HTTP websocket handler for incoming tag reads from the RFID readers
 func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
-	log.Println("handleLaps starting")
+	log.Println("RFID reader connected")
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("/laps/ upgrader.Upgrade: ", err)
@@ -232,12 +232,12 @@ func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	log.Println("handleLaps exiting")
+	log.Println("RFID reader disconnected")
 }
 
 // serviceTagChannel consumes the tag channel, allowing DB updates to be async with incoming tag reads
 func (svr *webServer) serviceTagChannel(hour uint) {
-	log.Println("serviceTagChannel starting")
+	log.Println("ready to count tags")
 	ds, err := ConnectToDB()
 	if err != nil {
 		log.Println("tagChannel ConnectToDB: ", err)
@@ -253,24 +253,24 @@ func (svr *webServer) serviceTagChannel(hour uint) {
 				if notif, err := ds.IncrementLaps(tagID, hour); err == nil {
 					svr.notify <- notif // Publish notification to the clients
 				} else {
-					log.Println("IncrementLaps: ", tagID, err)
+					log.Printf("ignoring %d - %s", tagID, err)
 				}
 			} else {
-				log.Println("Ignoring pre-event read: ", tagID)
+				log.Printf("ignoring %d - event not started\n", tagID)
 			}
 		case <-svr.quitTags:
-			log.Println("serviceTagChannel exiting")
+			log.Println("stop counting tags")
 			return
-		case hour := <-svr.updateHour: // Supports handleHours()
+		case hour = <-svr.updateHour: // Supports handleHours()
 			started = true
-			log.Println("Starting hour: ", hour)
+			log.Println("starting hour: ", hour)
 		}
 	}
 }
 
 // handleNotify is the HTTP websocket handler for browser clients to receive notifications
 func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
-	log.Println("handleNotify starting")
+	log.Println("browser client connected")
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
 	}
@@ -287,7 +287,7 @@ func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
 		case notif := <-client.send:
 			// send the notification to the browser client
 			if err := conn.WriteJSON(notif); err != nil {
-				log.Println("handleNotify exiting (client disconnected)")
+				log.Println("browser client disconnected")
 				svr.unregister <- client
 				return
 			}
@@ -297,7 +297,7 @@ func (svr *webServer) handleNotify(w http.ResponseWriter, r *http.Request) {
 
 // serviceNotifyChannel provides a concurrency-safe map to fan out notifications to many clients
 func (svr *webServer) serviceNotifyChannel() {
-	log.Println("serviceNotifyChannel starting")
+	log.Println("ready to publish notifications")
 	clients := make(map[*notifyClient]bool)
 
 	for {
@@ -311,7 +311,7 @@ func (svr *webServer) serviceNotifyChannel() {
 				client.send <- notif // send the notification to running /notify handlers
 			}
 		case <-svr.quitNotify:
-			log.Println("serviceNotifyChannel exiting")
+			log.Println("stop publishing notifications")
 			return
 		}
 	}
@@ -336,7 +336,7 @@ func StartWebServer(hour uint, tilStart time.Duration) {
 	signal.Notify(quit, os.Interrupt)
 	go func() {
 		<-quit
-		log.Println("received os.Interrupt")
+		log.Println("received interrupt signal")
 		if err := httpsvr.Shutdown(context.Background()); err != nil {
 			log.Fatalf("Shutdown: %v\n", err)
 		}

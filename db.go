@@ -31,47 +31,57 @@ const (
 	minLapSecs = 60.0
 )
 
-// DataStore is the abstraction around a SQLite3 DB
-type DataStore struct {
-	conn *sqlite3.Conn
-}
+type (
+	// DataStore is the abstraction around a SQLite3 DB
+	DataStore struct {
+		conn *sqlite3.Conn
+	}
 
-// Team is an in-memory representation of a row in the teams table
-type Team struct {
-	Hours  uint // bitfield where each bit represents the team being on track for one of the 24 hours of the event
-	Laps   int
-	Leader string
-	Name   string
-	Rank   string // transient - not in DB
-	TeamID int
-}
+	// Team is an in-memory representation of a row in the teams table
+	Team struct {
+		Hours  uint // bitfield where each bit represents the team being on track for one of the 24 hours of the event
+		Laps   int
+		Leader string
+		Name   string
+		Rank   string // transient - not in DB
+		TeamID int
+	}
 
-// Teams is an array of Team structs
-type Teams []*Team
+	// Teams is an array of Team structs
+	Teams []*Team
 
-// Tag is an in-memory representation of a row in the tags table
-type Tag struct {
-	Laps        int
-	LastUpdated int64
-	TagID       int
-	TeamID      int
-}
+	// Tag is an in-memory representation of a row in the tags table
+	Tag struct {
+		Laps        int
+		LastUpdated int64
+		TagID       int
+		TeamID      int
+	}
 
-// Tags is an array of Tag structs
-type Tags []*Tag
+	// Tags is an array of Tag structs
+	Tags []*Tag
 
-// Notification is how the server backend tells a browser client to display a tag read
-type Notification struct {
-	TagID    int
-	TeamID   int
-	TeamLaps int
-	TeamName string
-	TeamRank string
-}
+	// Notification is how the server backend tells a browser client to display a tag read
+	Notification struct {
+		TagID    int
+		TeamID   int
+		TeamLaps int
+		TeamName string
+		TeamRank string
+	}
+)
 
-// ErrDuplicateRead is a soft error generated when a tag is received multiple times within minLapSecs
-var ErrDuplicateRead = errors.New("Duplicate read")
-var initialized = false
+var (
+	// ErrDuplicateRead means TagID was read multiple times within minLapSecs.
+	// My RFID clients do deduplication, so this could mean the tag was read by both readers,
+	// or it could mean someone is trying to cheat to get more laps.
+	ErrDuplicateRead = errors.New("duplicate read")
+
+	// ErrUnassignedTag means TagID was not found in the tags table
+	ErrUnassignedTag = errors.New("unassigned tag")
+
+	initialized = false
+)
 
 // ConnectToDB is the way the web server connects to the DB from a goroutine
 func ConnectToDB() (*DataStore, error) {
@@ -116,7 +126,7 @@ func ConnectToDB() (*DataStore, error) {
 			return nil, err
 		}
 		initialized = true
-		log.Println("initialized DB")
+		log.Println("database ready")
 	}
 	return ds, nil
 }
@@ -377,7 +387,7 @@ func (ds *DataStore) getOneTag(tagID int, pLaps *int, pLastUpdated *int64, pTagI
 			return err
 		}
 	} else if !hasRow {
-		return errors.New("Unassigned tag")
+		return ErrUnassignedTag
 	}
 	return nil
 }

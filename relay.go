@@ -15,7 +15,7 @@ func main() {
 	}
 	defer logFile.Close()
 	log.SetOutput(logFile)
-	log.Printf("\nrelay starting\n")
+	log.Println("starting up")
 
 	// Parse command-line flags
 	importFilePtr := flag.String("import", "", "CSV file to import")
@@ -32,12 +32,12 @@ func main() {
 		}
 		ds.Close()
 	}
-
 	tilStart, err := time.ParseDuration(*start)
 	if err != nil {
 		log.Fatalln("Bad duration: ", *start)
 	}
 
+	// Ready to rumble
 	StartWebServer(*hour, tilStart)
-	log.Println("relay exiting")
+	log.Println("clean shutdown")
 }
