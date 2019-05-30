@@ -4,8 +4,12 @@ After=multi-user.target
  
 [Service]
 Type=simple
-ExecStart=/usr/bin/python /home/pi/relay/rfid.py
+ExecStart=/usr/bin/python /home/pi/src/github.com/theotherphp/relay_go/rfid/rfid.py
 Restart=on-abort
+StandardOutput=inherit
+StandardError=inherit
+WorkingDirectory=/home/pi/src/github.com/theotherphp/relay_go/
+User=pi
  
 [Install]
 WantedBy=multi-user.target
