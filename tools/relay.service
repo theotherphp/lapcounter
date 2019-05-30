@@ -6,6 +6,10 @@ After=multi-user.target
 Type=simple
 ExecStart=/home/pi/src/github.com/theotherphp/relay_go/relay
 Restart=on-abort
+StandardOutput=inherit
+StandardError=inherit
+WorkingDirectory=/home/pi/src/github.com/theotherphp/relay_go/
+User=pi
  
 [Install]
 WantedBy=multi-user.target
