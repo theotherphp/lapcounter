@@ -20,7 +20,7 @@
     </table>
     <form action="/team/{{.TeamID}}" method="POST">
         <fieldset>        
-            <input type="text" name="tag_ids" placeholder="100-103">
+            <input type="number" name="tag_ids" placeholder="100-103">
             <input type="hidden" name="team_id" value={{.TeamID}}>
             <button type="submit">Add tags</button>
         </fieldset>
