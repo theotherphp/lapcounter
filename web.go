@@ -220,12 +220,15 @@ func (svr *webServer) handleLaps(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	for {
-		if _, msg, err := conn.ReadMessage(); err == nil {
-			tagID, err := strconv.Atoi(string(msg))
-			if err == nil {
-				svr.tags <- tagID // Publish tag reads to the tag channel
-			} else {
-				log.Println("strconv.Atoi: ", msg)
+		if _, tags, err := conn.ReadMessage(); err == nil {
+			// Handle comma-separated list of tags read while trying to reestablish the websocket
+			for _, tag := range strings.Split(string(tags), ",") {
+				tagID, err := strconv.Atoi(tag)
+				if err == nil {
+					svr.tags <- tagID // Publish tag reads to the tag channel
+				} else {
+					log.Println("strconv.Atoi: ", tags)
+				}
 			}
 		} else {
 			log.Println("conn.ReadMessage: ", err)
