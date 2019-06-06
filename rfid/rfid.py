@@ -34,7 +34,7 @@ class RelayWebsocket(object):
         self.tag_buffer.append(tag)
         if not self.good:
             try:
-                logging.debug('connecting')
+                logging.info('connecting')
                 self.ws = websocket.create_connection('ws://' + self.host + ':8080/laps')
                 self.ws.on_close = self.on_close
                 self.good = True
