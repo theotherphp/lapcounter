@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -336,10 +337,10 @@ func StartWebServer(hour uint, tilStart time.Duration) {
 	var httpsvr http.Server
 	httpsvr.Addr = ":8080"
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-quit
-		log.Println("received terminate signal")
+		s := <-quit
+		log.Println("received signal: ", s)
 		if err := httpsvr.Shutdown(context.Background()); err != nil {
 			log.Fatalf("Shutdown: %v\n", err)
 		}
