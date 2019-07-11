@@ -446,7 +446,7 @@ func (ds *DataStore) Import(fname string) error {
 				return err
 			}
 			teams = append(teams, &Team{TeamID: teamID, Name: record[0], Leader: record[1]})
-			tagRange := record[5]
+			tagRange := record[4]
 			if tagRange != "" { // Not everyone gets tags ahead of time
 				splitTags := strings.Split(tagRange, "-")
 				firstTag, _ := strconv.Atoi(splitTags[0])
