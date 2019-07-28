@@ -12,6 +12,12 @@ function initialize() {
         };
         ws.onmessage = function (evt) { 
             var notif = JSON.parse(evt.data);
+            for (var i = 0; i < app.notifications.length; i++) {
+                if (notif.TagID == app.notifications[i].TagID) {
+                    app.notifications.splice(i, 1);
+                    break;
+                }
+            }
             if (app.notifications.length > 12) {
                 app.notifications.pop();
             }
