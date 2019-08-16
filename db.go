@@ -212,20 +212,13 @@ func (ds *DataStore) insertTeam(team *Team) error {
 	return nil
 }
 
-func (ds *DataStore) insertTag(tag *Tag) error {
+// InsertTag inserts a tag into the database
+func (ds *DataStore) InsertTag(tag Tag) error {
 	tag.Laps = 0
 	tag.Updated = 0
-	err := ds.conn.Create(tag).Error
+	err := ds.conn.Create(&tag).Error
 	if err != nil {
 		return err
-	}
-	return nil
-}
-
-// InsertTags takes a list of Tag structs and inserts them in the DB
-func (ds *DataStore) InsertTags(tags Tags) error {
-	for _, tag := range tags {
-		ds.insertTag(tag)
 	}
 	return nil
 }
@@ -266,7 +259,7 @@ func (ds *DataStore) Import(fname string) error {
 				firstTag, _ := strconv.Atoi(splitTags[0])
 				lastTag, _ := strconv.Atoi(splitTags[1])
 				for tagID := firstTag; tagID <= lastTag; tagID++ {
-					err := ds.insertTag(&Tag{ID: tagID, TeamID: team.ID})
+					err := ds.InsertTag(Tag{ID: tagID, TeamID: team.ID})
 					if err != nil {
 						return err
 					}

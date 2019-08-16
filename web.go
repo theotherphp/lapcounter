@@ -132,13 +132,12 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 		} else {
 			last = first
 		}
-		var tags Tags
 		for tagID := first; tagID <= last; tagID++ {
-			tags = append(tags, &Tag{ID: tagID, TeamID: teamID})
-		}
-		if err = ds.InsertTags(tags); err != nil {
-			reportError(w, err, "insertTags: ")
-			return
+			err := ds.InsertTag(Tag{ID: tagID, TeamID: teamID})
+			if err != nil {
+				reportError(w, err, "insertTags: ")
+				return
+			}
 		}
 		http.Redirect(w, r, "/team/"+strconv.Itoa(teamID), http.StatusFound)
 	}
