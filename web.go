@@ -108,7 +108,7 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 				TeamParam{
 					Name:   team.Name,
 					Tags:   tags,
-					TeamID: team.TeamID,
+					TeamID: team.ID,
 				})
 		}
 	} else if r.Method == "POST" { // Add tags to this team
@@ -134,9 +134,9 @@ func (svr *webServer) handleTeam(w http.ResponseWriter, r *http.Request) {
 		}
 		var tags Tags
 		for tagID := first; tagID <= last; tagID++ {
-			tags = append(tags, &Tag{TagID: tagID, TeamID: teamID})
+			tags = append(tags, &Tag{ID: tagID, TeamID: teamID})
 		}
-		if err = ds.insertTags(tags); err != nil {
+		if err = ds.InsertTags(tags); err != nil {
 			reportError(w, err, "insertTags: ")
 			return
 		}

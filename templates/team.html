@@ -12,9 +12,9 @@
         </tr>
         {{range $index, $element := .Tags}}
             <tr>
-                <td>{{.TagID}}</td>
+                <td>{{.ID}}</td>
                 <td>{{.Laps}}</td>
-                <td>{{.LastUpdated | friendlyDate}}</td>
+                <td>{{.Updated | friendlyDate}}</td>
             </tr>
         {{end}}
     </table>

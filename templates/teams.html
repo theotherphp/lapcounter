@@ -11,14 +11,14 @@
     <table>
         <tr>
             <!-- SQLite column names in URLs below -->
-            <th><a href="teams?sort=team_id&order=ASC">Name</a></th>
+            <th><a href="teams?sort=id&order=ASC">Name</a></th>
             <th>Leader</th>
-            <th><a href="teams?sort=team_laps&order=DESC">Laps</a></th>
+            <th><a href="teams?sort=laps&order=DESC">Laps</a></th>
             <th>Rank</a></th>
         </tr>
         {{range $index, $element := .Teams}}
             <tr>
-                <td><a href="/team/{{.TeamID}}">{{.Name}}</a></td>
+                <td><a href="/team/{{.ID}}">{{.Name}}</a></td>
                 <td>{{.Leader}}</td>
                 <td>{{.Laps}}</td>
                 <td>{{.Rank}}</td>
