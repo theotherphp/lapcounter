@@ -1,6 +1,5 @@
 *.db
-relay
-db
+lapcounter
 .vscode
 *.csv
 *.log

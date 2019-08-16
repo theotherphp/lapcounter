@@ -71,7 +71,7 @@ var (
 
 // ConnectToDB is the way the web server connects to the DB from a goroutine
 func ConnectToDB() (*DataStore, error) {
-	conn, err := gorm.Open("sqlite3", "relay.db")
+	conn, err := gorm.Open("sqlite3", "lapcounter.db")
 	if err != nil {
 		log.Fatalln("Open: ", err)
 		return nil, err
